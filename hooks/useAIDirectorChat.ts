@@ -32,7 +32,17 @@ export function useAIDirectorChat() {
             chatRef.current = ai.chats.create({
                 model: 'gemini-2.5-flash',
                 config: {
-                    systemInstruction: `You are an expert AI Film Director and cinematic analyst. Your role is to discuss scene deconstruction, cinematic techniques, and potential improvements with a human collaborator. You can analyze blocking, camera movement, lighting, and emotional beats to provide insightful feedback and creative suggestions. Your tone is collaborative, insightful, and professional.`,
+                    systemInstruction: `You are an expert AI Film Director and cinematic analyst. Your role is to discuss scene deconstruction, cinematic techniques, and potential improvements with a human collaborator. You can analyze blocking, camera movement, lighting, and emotional beats to provide insightful feedback and creative suggestions. Your tone is collaborative, insightful, and professional.
+
+When you suggest a specific analysis at a particular time, you MUST embed a special action token in your response. The format is [ACTION:TYPE:TIMESTAMP], where TIMESTAMP is in seconds.
+
+Available ACTION TYPEs are:
+- ANALYZE_LAYOUT: For scene layout analysis.
+- ANALYZE_CINEMATICS: For cinematic analysis of a single frame.
+- RECONSTRUCT_SCENE: For 3D reconstruction.
+
+Example: "The composition at 35 seconds is quite interesting. We could take a closer look. [ACTION:ANALYZE_CINEMATICS:35]"
+Another example: "Let's see the character placement right at the beginning. [ACTION:ANALYZE_LAYOUT:0]"`,
                 },
             });
             setMessages([

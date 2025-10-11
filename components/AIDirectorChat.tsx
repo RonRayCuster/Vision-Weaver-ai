@@ -7,9 +7,29 @@ interface AIDirectorChatProps {
     isLoading: boolean;
     error: string | null;
     sendMessage: (message: string) => void;
+    onExecuteAction: (actionType: string, timestamp: number) => void;
 }
 
-const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, error, sendMessage }) => {
+const ACTION_REGEX = /\[ACTION:(\w+):(\d+\.?\d*)]/g;
+
+const formatActionLabel = (actionType: string, timestamp: number): string => {
+    const date = new Date(0);
+    date.setSeconds(timestamp);
+    const timeString = date.toISOString().substr(14, 5); // MM:SS format
+
+    switch (actionType) {
+        case 'ANALYZE_CINEMATICS':
+            return `Analyze Cinematics at ${timeString}`;
+        case 'ANALYZE_LAYOUT':
+            return `Analyze Layout at ${timeString}`;
+        case 'RECONSTRUCT_SCENE':
+             return `Reconstruct Scene at ${timeString}`;
+        default:
+            return `Execute ${actionType.replace(/_/g, ' ').toLowerCase()} at ${timeString}`;
+    }
+};
+
+const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, error, sendMessage, onExecuteAction }) => {
     const [inputValue, setInputValue] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -66,6 +86,52 @@ const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, er
         );
     };
 
+    const renderMessageContent = (content: string) => {
+        const parts: (string | React.ReactNode)[] = [];
+        let lastIndex = 0;
+        let match;
+    
+        // Reset regex state for each call
+        ACTION_REGEX.lastIndex = 0;
+
+        while ((match = ACTION_REGEX.exec(content)) !== null) {
+            // Push the text before the match
+            if (match.index > lastIndex) {
+                parts.push(content.substring(lastIndex, match.index));
+            }
+    
+            const [fullMatch, actionType, timestampStr] = match;
+            const timestamp = parseFloat(timestampStr);
+    
+            // Push the button for the match
+            parts.push(
+                <button 
+                    key={match.index}
+                    onClick={() => onExecuteAction(actionType, timestamp)}
+                    className="block bg-secondary-accent text-primary font-bold px-2 py-1 my-1 text-xs rounded-md hover:bg-secondary-accent/90 transition active:scale-95 text-left"
+                    title={`Run analysis at ${timestamp.toFixed(2)}s`}
+                >
+                    {`[ ${formatActionLabel(actionType, timestamp)} ]`}
+                </button>
+            );
+    
+            lastIndex = match.index + fullMatch.length;
+        }
+    
+        // Push the remaining text after the last match
+        if (lastIndex < content.length) {
+            parts.push(content.substring(lastIndex));
+        }
+    
+        // Apply highlighting to the text parts
+        return parts.map((part, index) => {
+            if (typeof part === 'string') {
+                return <span key={index}>{highlightText(part, searchQuery)}</span>;
+            }
+            return part; // It's already a button
+        });
+    };
+
     return (
         <div className="h-full flex flex-col">
             <style>{`
@@ -120,7 +186,7 @@ const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, er
                                         : 'bg-primary/80 text-text-primary rounded-bl-none'
                                 }`}
                             >
-                                <p className="text-sm whitespace-pre-wrap">{highlightText(msg.content, searchQuery)}</p>
+                                <div className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content)}</div>
                             </div>
                         </div>
                     ))}

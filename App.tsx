@@ -14,11 +14,35 @@ import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, gen
 import AIDirectorChat from './components/AIDirectorChat';
 import { ResizablePanel } from './components/ResizablePanel';
 
+const USER_PRESETS_STORAGE_KEY = 'visionweaver_user_presets';
+
 export default function App() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     
+    const [userPresets, setUserPresets] = useState<Preset[]>(() => {
+        try {
+            const saved = localStorage.getItem(USER_PRESETS_STORAGE_KEY);
+            return saved ? JSON.parse(saved) : [];
+        } catch (error) {
+            console.error("Failed to load user presets from local storage:", error);
+            return [];
+        }
+    });
+
     const [currentPresetId, setCurrentPresetId] = useState<string>(presets[0].id);
     const [currentSceneData, setCurrentSceneData] = useState<SceneData>(presets[0].data);
+    
+    const allPresets = useMemo(() => [...presets, ...userPresets], [userPresets]);
+
+    // Effect to save user presets to local storage whenever they change
+    useEffect(() => {
+        try {
+            localStorage.setItem(USER_PRESETS_STORAGE_KEY, JSON.stringify(userPresets));
+        } catch (error) {
+            console.error("Failed to save user presets to local storage:", error);
+        }
+    }, [userPresets]);
+
 
     const { 
         showBlocking, setShowBlocking, 
@@ -61,17 +85,39 @@ export default function App() {
     const { duration } = currentSceneData;
     const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate, setCurrentTime, setIsPlaying } = useVideoPlayback(videoRef, duration);
     const { messages: chatMessages, isLoading: isChatLoading, error: chatError, sendMessage: sendChatMessage } = useAIDirectorChat();
+    
+    const activeSceneData = useMemo(() => {
+        if (!emotionalArcAnalysis) {
+            return currentSceneData;
+        }
+
+        const newSceneData: SceneData = JSON.parse(JSON.stringify(currentSceneData));
+
+        newSceneData.characters.forEach((char: Character) => {
+            if (emotionalArcAnalysis[char.id]) {
+                char.emotion = emotionalArcAnalysis[char.id];
+            }
+        });
+
+        return newSceneData;
+    }, [currentSceneData, emotionalArcAnalysis]);
 
     const handlePresetChange = useCallback((presetId: string) => {
-        const newPreset = presets.find(p => p.id === presetId);
+        const newPreset = allPresets.find(p => p.id === presetId);
         if (newPreset) {
             setCurrentPresetId(newPreset.id);
             setCurrentSceneData(newPreset.data);
 
             if (videoRef.current) {
-                videoRef.current.pause();
-                videoRef.current.src = newPreset.data.videoUrl;
-                videoRef.current.load();
+                // Check if the video source needs changing to avoid unnecessary reloads
+                const currentSrc = new URL(videoRef.current.src, window.location.href).href;
+                const newSrc = new URL(newPreset.data.videoUrl, window.location.href).href;
+
+                if (currentSrc !== newSrc) {
+                    videoRef.current.pause();
+                    videoRef.current.src = newPreset.data.videoUrl;
+                    videoRef.current.load();
+                }
                 videoRef.current.currentTime = 0;
             }
             setCurrentTime(0);
@@ -103,7 +149,21 @@ export default function App() {
             setIsCinemaMode(false);
             setIsPanelOpen(false);
         }
-    }, [setCurrentTime, setIsPlaying]);
+    }, [allPresets, setCurrentTime, setIsPlaying]);
+    
+    const handleSavePreset = useCallback(() => {
+        const presetName = prompt("Enter a name for your new preset:");
+        if (presetName && presetName.trim()) {
+            const newPreset: Preset = {
+                id: `user-${Date.now()}`, // Simple unique ID
+                name: presetName.trim(),
+                data: activeSceneData, // Use the currently active data, which may include AI analysis
+            };
+            setUserPresets(prev => [...prev, newPreset]);
+            // Automatically switch to the new preset
+            setCurrentPresetId(newPreset.id);
+        }
+    }, [activeSceneData]);
 
 
      // Effect to handle Escape key for exiting Cinema Mode/Panel and prevent body scroll
@@ -363,22 +423,25 @@ export default function App() {
         }
     }, []);
 
-    const activeSceneData = useMemo(() => {
-        if (!emotionalArcAnalysis) {
-            return currentSceneData;
+    const handleExecuteAction = useCallback((actionType: string, timestamp: number) => {
+        handleScrub(timestamp);
+
+        // The analysis functions use the video's current time, which handleScrub updates.
+        // The captureFrame utility handles waiting for the seek to complete.
+        switch (actionType) {
+            case 'ANALYZE_CINEMATICS':
+                handleAnalyzeCinematics();
+                break;
+            case 'ANALYZE_LAYOUT':
+                handleAnalyzeScene();
+                break;
+            case 'RECONSTRUCT_SCENE':
+                handleReconstructScene();
+                break;
+            default:
+                console.warn(`Unknown action type from chat: ${actionType}`);
         }
-
-        const newSceneData: SceneData = JSON.parse(JSON.stringify(currentSceneData));
-
-        newSceneData.characters.forEach((char: Character) => {
-            if (emotionalArcAnalysis[char.id]) {
-                char.emotion = emotionalArcAnalysis[char.id];
-            }
-        });
-
-        return newSceneData;
-    }, [currentSceneData, emotionalArcAnalysis]);
-
+    }, [handleScrub, handleAnalyzeCinematics, handleAnalyzeScene, handleReconstructScene]);
 
     const characterPositions: CharacterPosition[] = activeSceneData.characters.map(char => {
         // FIX: Added explicit generic type `<BlockingKeyframe>` to the `findSegment` call.
@@ -449,6 +512,7 @@ export default function App() {
             isLoading={isChatLoading}
             error={chatError}
             sendMessage={sendChatMessage}
+            onExecuteAction={handleExecuteAction}
         />
     );
 
@@ -510,9 +574,10 @@ export default function App() {
             <div className={`transition-opacity duration-500 flex-shrink-0 ${isCinemaMode ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
                 <Header 
                     onMenuClick={() => setIsPanelOpen(true)}
-                    presets={presets}
+                    presets={allPresets}
                     currentPresetId={currentPresetId}
                     onPresetChange={handlePresetChange}
+                    onSavePreset={handleSavePreset}
                 />
             </div>
 

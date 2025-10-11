@@ -75,6 +75,14 @@ export const ChevronDownIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) 
     </svg>
 );
 
+export const SaveIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+        <polyline points="17 21 17 13 7 13 7 21" />
+        <polyline points="7 3 7 8 15 8" />
+    </svg>
+);
+
 
 // --- ICONS FOR DATA PANEL ---
 
@@ -166,5 +174,16 @@ export const DragHandleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) =
         <circle cx="12" cy="14" r="1" />
         <circle cx="12" cy="6" r="1" />
         <circle cx="12" cy="18" r="1" />
+    </svg>
+);
+
+export const GenerativeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M5 3v4" />
+        <path d="M19 17v4" />
+        <path d="M3 5h4" />
+        <path d="M17 19h4" />
+        <path d="M12 3l-1.5 4-4 1.5 4 1.5 1.5 4 1.5-4 4-1.5-4-1.5z" />
+        <path d="M12 12l-1.5 4-4 1.5 4 1.5 1.5 4 1.5-4 4-1.5-4-1.5z" />
     </svg>
 );
