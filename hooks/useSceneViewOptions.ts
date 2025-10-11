@@ -8,6 +8,7 @@ export function useSceneViewOptions() {
     const [showBlocking, setShowBlocking] = useState(true);
     const [showCameraPath, setShowCameraPath] = useState(true);
     const [showEmotionData, setShowEmotionData] = useState(true);
+    const [showDroneView, setShowDroneView] = useState(true);
 
     return {
         showBlocking,
@@ -16,5 +17,7 @@ export function useSceneViewOptions() {
         setShowCameraPath,
         showEmotionData,
         setShowEmotionData,
+        showDroneView,
+        setShowDroneView,
     };
 }

@@ -1,7 +1,15 @@
+// Base Interfaces
 export interface BaseKeyframe {
     time: number;
 }
 
+export interface Vector3 {
+    x: number;
+    y: number;
+    z: number;
+}
+
+// Keyframe Types for Scene Data
 export interface BlockingKeyframe extends BaseKeyframe {
     x: number;
     y: number;
@@ -12,6 +20,14 @@ export interface EmotionKeyframe extends BaseKeyframe {
     label: string;
 }
 
+export interface CameraKeyframe extends BaseKeyframe {
+    complexity: number;
+    label: string;
+    x: number;
+    y: number;
+}
+
+// Pre-defined Scene Data Structure
 export interface Character {
     id: string;
     name: string;
@@ -21,34 +37,25 @@ export interface Character {
     emotion: EmotionKeyframe[];
 }
 
-export interface CameraKeyframe extends BlockingKeyframe {
-    complexity: number;
-    label: string;
-}
-
-export interface CameraData {
-    movement: CameraKeyframe[];
+// A Character with its interpolated position at a specific time
+export interface CharacterPosition extends Character {
+    x: number;
+    y: number;
 }
 
 export interface SceneData {
     videoUrl: string;
     duration: number;
     characters: Character[];
-    camera: CameraData;
+    camera: {
+        movement: CameraKeyframe[];
+        pathColor: string;
+    };
 }
 
-export interface CharacterPosition extends Character {
-    x: number;
-    y: number;
-}
+// Types for Gemini Service Responses
 
-// Types for AI Scene Analysis
-export interface Vector3 {
-    x: number;
-    y: number;
-    z: number;
-}
-
+// Scene Layout Analysis
 export interface ActorAnalysis {
     name: string;
     position: Vector3;
@@ -58,8 +65,6 @@ export interface ActorAnalysis {
 
 export interface CameraAnalysis {
     position: Vector3;
-    orientation?: Vector3;
-    zoom?: number;
 }
 
 export interface LightAnalysis {
@@ -82,26 +87,47 @@ export interface SceneAnalysis {
     overallMood: string;
 }
 
-// Types for AI Cinematic Analysis
+// Cinematic Analysis
 export interface CinematicAnalysis {
     shotComposition: string;
     colorPalette: string;
     cameraWork: string;
 }
 
-// Types for AI 3D Reconstruction (COLMAP)
+// 3D Scene Reconstruction
 export interface PointCloudPoint {
     position: Vector3;
-    color: string; // Hex color string, e.g., "#RRGGBB"
+    color: string;
 }
 
 export interface CameraPose {
     position: Vector3;
-    // Quaternion for orientation
-    orientation: { x: number; y: number; z: number; w: number; };
+    orientation: {
+        x: number;
+        y: number;
+        z: number;
+        w: number;
+    };
 }
 
 export interface SceneReconstruction {
     pointCloud: PointCloudPoint[];
     cameraPoses: CameraPose[];
+}
+
+// Dynamic Feedback on Scene Changes
+export interface DynamicFeedback {
+    impact: string;
+    suggestion: string;
+}
+
+// AI Image Editing
+export interface EditedImage {
+    imageData: string; // base64 encoded image data
+    commentary: string;
+}
+
+// AI Video Generation
+export interface GeneratedVideo {
+    videoUrl: string; // Blob URL for the generated video
 }

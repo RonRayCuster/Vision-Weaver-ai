@@ -4,7 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Interactive Scene Visualizer</title>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Satoshi', 'sans-serif'],
+            },
+            colors: {
+              primary: '#202124',
+              'secondary-accent': '#C3893F',
+              accent: '#009BBA',
+              surface: '#303134',
+              'text-primary': '#F1F3F4',
+              'text-secondary': '#9AA0A6',
+              border: '#4E5054',
+              success: '#1E8E3E',
+              warning: '#F9AB00',
+              error: '#D93025',
+            }
+          }
+        }
+      }
+    </script>
   <script type="importmap">
 {
   "imports": {
@@ -19,8 +43,25 @@
   }
 }
 </script>
+<style>
+  /* Custom Scrollbar for a polished look */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #202124; /* primary */
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #4E5054; /* border */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9AA0A6; /* text-secondary */
+  }
+</style>
 </head>
-  <body class="bg-gray-900">
+  <body class="bg-primary">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

@@ -1,24 +1,26 @@
-
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { sceneData } from './constants';
 import { findSegment, interpolate } from './utils/interpolation';
-import type { CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction } from './types';
+import type { CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo } from './types';
 import VideoPlayer from './components/VideoPlayer';
 import PlaybackControls from './components/PlaybackControls';
 import DataPanel from './components/DataPanel';
+import Header from './components/Header';
 import { useVideoPlayback } from './hooks/useVideoPlayback';
 import { useAIDirectorChat } from './hooks/useAIDirectorChat';
 import { useSceneViewOptions } from './hooks/useSceneViewOptions';
-import { analyzeSceneLayout, analyzeCinematics, reconstructScene } from './services/geminiService';
+import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo } from './services/geminiService';
+import AIDirectorChat from './components/AIDirectorChat';
+import { ResizablePanel } from './components/ResizablePanel';
 
 export default function App() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
-    // FIX: Removed API key state. The API key is now handled by environment variables as per guidelines.
-
+    
     const { 
         showBlocking, setShowBlocking, 
         showCameraPath, setShowCameraPath, 
-        showEmotionData, setShowEmotionData 
+        showEmotionData, setShowEmotionData,
+        showDroneView, setShowDroneView
     } = useSceneViewOptions();
 
     const [sceneAnalysis, setSceneAnalysis] = useState<SceneAnalysis | null>(null);
@@ -35,20 +37,51 @@ export default function App() {
     const [reconstructionError, setReconstructionError] = useState<string | null>(null);
     const [reconstructionProgress, setReconstructionProgress] = useState<string | null>(null);
 
+    const [editedImage, setEditedImage] = useState<EditedImage | null>(null);
+    const [isEditingImage, setIsEditingImage] = useState(false);
+    const [editImageError, setEditImageError] = useState<string | null>(null);
+
+    const [generatedVideo, setGeneratedVideo] = useState<GeneratedVideo | null>(null);
+    const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+    const [videoGenerationError, setVideoGenerationError] = useState<string | null>(null);
+    const [videoGenerationProgress, setVideoGenerationProgress] = useState<string | null>(null);
+
+    const [isCinemaMode, setIsCinemaMode] = useState(false);
+    const [isPanelOpen, setIsPanelOpen] = useState(false);
 
     const { duration } = sceneData;
     const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate } = useVideoPlayback(videoRef, duration);
-    // FIX: API key is no longer passed to the chat hook.
     const { messages: chatMessages, isLoading: isChatLoading, error: chatError, sendMessage: sendChatMessage } = useAIDirectorChat();
+
+     // Effect to handle Escape key for exiting Cinema Mode/Panel and prevent body scroll
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setIsCinemaMode(false);
+                setIsPanelOpen(false);
+            }
+        };
+
+        const shouldPreventScroll = isCinemaMode || isPanelOpen;
+        if (shouldPreventScroll) {
+            document.body.style.overflow = 'hidden';
+            window.addEventListener('keydown', handleKeyDown);
+        } else {
+            document.body.style.overflow = '';
+        }
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            document.body.style.overflow = '';
+        };
+    }, [isCinemaMode, isPanelOpen]);
 
     const captureFrame = useCallback((time: number): Promise<string> =>
         new Promise((resolve, reject) => {
             const videoEl = videoRef.current;
             if (!videoEl) return reject(new Error("Video element not found."));
             
-            const onSeeked = () => {
-                videoEl.removeEventListener('seeked', onSeeked);
-                videoEl.removeEventListener('error', onError);
+            videoEl.onseeked = () => {
                 const canvas = document.createElement('canvas');
                 canvas.width = videoEl.videoWidth;
                 canvas.height = videoEl.videoHeight;
@@ -56,23 +89,14 @@ export default function App() {
                 if (!ctx) return reject(new Error("Could not get canvas context"));
                 ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
                 resolve(canvas.toDataURL('image/jpeg').split(',')[1]);
+                 videoEl.onseeked = null; // Clean up
             };
-            const onError = () => {
-                videoEl.removeEventListener('seeked', onSeeked);
-                videoEl.removeEventListener('error', onError);
-                reject(new Error("Video error during seek."));
-            };
-
-            videoEl.addEventListener('seeked', onSeeked, { once: true });
-            videoEl.addEventListener('error', onError, { once: true });
+            videoEl.onerror = () => reject(new Error("Video error during seek."));
             videoEl.currentTime = time;
         }), []);
     
     const handleAnalyzeScene = useCallback(async () => {
-        // FIX: Removed API key check. The key is assumed to be available in the environment.
-        if (!videoRef.current) {
-            return;
-        }
+        if (!videoRef.current) return;
         
         setIsAnalyzing(true);
         setAnalysisError(null);
@@ -84,7 +108,7 @@ export default function App() {
 
         try {
             const FRAME_COUNT = 3;
-            const TIME_OFFSET = 0.5; // seconds
+            const TIME_OFFSET = 0.5;
             const base64Frames: string[] = [];
             
             const timestamps = Array.from({ length: FRAME_COUNT }, (_, i) => {
@@ -100,7 +124,6 @@ export default function App() {
 
             setAnalysisProgress('Analyzing scene layout...');
             
-            // FIX: API key is no longer passed to the service function.
             const resultJson = await analyzeSceneLayout(base64Frames);
             setSceneAnalysis(resultJson);
 
@@ -117,10 +140,7 @@ export default function App() {
     }, [duration, captureFrame]);
 
     const handleAnalyzeCinematics = useCallback(async () => {
-        // FIX: Removed API key check.
-        if (!videoRef.current) {
-            return;
-        }
+        if (!videoRef.current) return;
 
         setIsAnalyzingCinematics(true);
         setCinematicAnalysisError(null);
@@ -132,7 +152,6 @@ export default function App() {
         try {
             const frameData = await captureFrame(originalTime);
             
-            // FIX: API key is no longer passed to the service function.
             const resultJson = await analyzeCinematics(frameData);
             setCinematicAnalysis(resultJson);
 
@@ -148,10 +167,7 @@ export default function App() {
     }, [captureFrame]);
 
     const handleReconstructScene = useCallback(async () => {
-        // FIX: Removed API key check.
-        if (!videoRef.current) {
-            return;
-        }
+        if (!videoRef.current) return;
 
         setIsReconstructing(true);
         setReconstructionError(null);
@@ -179,7 +195,6 @@ export default function App() {
 
             setReconstructionProgress('Reconstructing 3D scene...');
             
-            // FIX: API key is no longer passed to the service function.
             const resultJson = await reconstructScene(base64Frames);
             setSceneReconstruction(resultJson);
 
@@ -195,6 +210,48 @@ export default function App() {
         }
     }, [duration, captureFrame]);
 
+    const handleEditFrame = useCallback(async (prompt: string) => {
+        if (!videoRef.current || !prompt.trim()) return;
+
+        setIsEditingImage(true);
+        setEditImageError(null);
+        setEditedImage(null);
+
+        const video = videoRef.current;
+        const originalTime = video.currentTime;
+
+        try {
+            const frameData = await captureFrame(originalTime);
+            const result = await editFrame(frameData, prompt);
+            setEditedImage(result);
+        } catch (error) {
+            console.error("Image editing failed:", error);
+            setEditImageError("Failed to edit the frame. Please try again.");
+        } finally {
+            setIsEditingImage(false);
+        }
+    }, [captureFrame]);
+
+    const handleGenerateVideo = useCallback(async (prompt: string) => {
+        if (!prompt.trim()) return;
+
+        setIsGeneratingVideo(true);
+        setVideoGenerationError(null);
+        setGeneratedVideo(null);
+        setVideoGenerationProgress("Starting generation...");
+
+        try {
+            const result = await generateVideo(prompt, setVideoGenerationProgress);
+            setGeneratedVideo(result);
+        } catch (error) {
+            console.error("Video generation failed:", error);
+            setVideoGenerationError("Failed to generate the video. Please try again.");
+        } finally {
+            setIsGeneratingVideo(false);
+            setVideoGenerationProgress(null);
+        }
+    }, []);
+
     const characterPositions: CharacterPosition[] = sceneData.characters.map(char => {
         const { start, end } = findSegment(char.blocking, currentTime);
         const x = interpolate(start.x, end.x, start.time, end.time, currentTime);
@@ -208,19 +265,90 @@ export default function App() {
     const cameraComplexity = interpolate(camStart.complexity, camEnd.complexity, camStart.time, camEnd.time, currentTime);
     const currentCameraPosition = { x: cameraX, y: cameraY, complexity: cameraComplexity };
 
+    const mainPanelContent = (
+         <DataPanel
+            sceneData={sceneData}
+            currentTime={currentTime}
+            showBlocking={showBlocking}
+            setShowBlocking={setShowBlocking}
+            showCameraPath={showCameraPath}
+            setShowCameraPath={setShowCameraPath}
+            showEmotionData={showEmotionData}
+            setShowEmotionData={setShowEmotionData}
+            showDroneView={showDroneView}
+            setShowDroneView={setShowDroneView}
+            onAnalyzeScene={handleAnalyzeScene}
+            isAnalyzing={isAnalyzing}
+            sceneAnalysis={sceneAnalysis}
+            analysisError={analysisError}
+            analysisProgress={analysisProgress}
+            onAnalyzeCinematics={handleAnalyzeCinematics}
+            isAnalyzingCinematics={isAnalyzingCinematics}
+            cinematicAnalysis={cinematicAnalysis}
+            cinematicAnalysisError={cinematicAnalysisError}
+            onReconstructScene={handleReconstructScene}
+            isReconstructing={isReconstructing}
+            sceneReconstruction={sceneReconstruction}
+            reconstructionError={reconstructionError}
+            reconstructionProgress={reconstructionProgress}
+            onEditFrame={handleEditFrame}
+            isEditingImage={isEditingImage}
+            editedImage={editedImage}
+            editImageError={editImageError}
+            onGenerateVideo={handleGenerateVideo}
+            isGeneratingVideo={isGeneratingVideo}
+            generatedVideo={generatedVideo}
+            videoGenerationError={videoGenerationError}
+            videoGenerationProgress={videoGenerationProgress}
+            onSeek={handleScrub}
+            onClose={() => setIsPanelOpen(false)}
+        />
+    );
+     const chatPanelContent = (
+        <AIDirectorChat 
+            messages={chatMessages}
+            isLoading={isChatLoading}
+            error={chatError}
+            sendMessage={sendChatMessage}
+        />
+    );
 
     return (
-        <div className="bg-gray-900 text-white min-h-screen font-sans p-4 lg:p-6 flex flex-col">
-            <header className="mb-4 flex flex-wrap justify-between items-center gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-sky-400">Interactive Scene Visualizer</h1>
-                    <p className="text-sm text-gray-400">Blocking & Emotion Data Visualization</p>
-                </div>
-                 {/* FIX: Removed API key input field as per coding guidelines. */}
-            </header>
+        <div className="bg-primary text-text-primary min-h-screen font-sans flex flex-col h-screen overflow-hidden">
+            <style>
+                {`
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(-10px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                    .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+                    .fade-in-delay-1 { animation-delay: 0.1s; }
+                    .fade-in-delay-2 { animation-delay: 0.2s; }
+                    .fade-in-delay-3 { animation-delay: 0.3s; }
+                `}
+            </style>
+             {/* Cinema Mode Overlay */}
+            <div
+                className={`fixed inset-0 bg-primary/90 backdrop-blur-sm z-40 transition-opacity duration-500 ${
+                    isCinemaMode ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={() => setIsCinemaMode(false)}
+            />
 
-            <main className="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 flex flex-col space-y-4">
+            {/* Mobile Panel Overlay */}
+            <div
+                className={`fixed inset-0 bg-primary/70 backdrop-blur-sm z-30 transition-opacity xl:hidden ${
+                    isPanelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={() => setIsPanelOpen(false)}
+            />
+
+            <div className={`transition-opacity duration-500 flex-shrink-0 ${isCinemaMode ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
+                <Header onMenuClick={() => setIsPanelOpen(true)} />
+            </div>
+
+            <main className="flex-grow p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-0">
+                <div className={`xl:col-span-7 flex flex-col gap-6 fade-in fade-in-delay-2 opacity-0 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
                     <VideoPlayer
                         ref={videoRef}
                         videoUrl={sceneData.videoUrl}
@@ -229,6 +357,7 @@ export default function App() {
                         characterPositions={characterPositions}
                         showCameraPath={showCameraPath}
                         cameraPath={sceneData.camera.movement}
+                        cameraPathColor={sceneData.camera.pathColor}
                         currentCameraPosition={currentCameraPosition}
                     />
                     <PlaybackControls
@@ -237,37 +366,34 @@ export default function App() {
                         currentTime={currentTime}
                         duration={duration}
                         onScrub={handleScrub}
+                        isCinemaMode={isCinemaMode}
+                        onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
                     />
                 </div>
+                
+                {/* Desktop Layout: Resizable Panels */}
+                <div className={`hidden xl:col-span-5 xl:flex min-h-0 fade-in fade-in-delay-3 opacity-0 ${isCinemaMode ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
+                    <ResizablePanel>
+                        {mainPanelContent}
+                        {chatPanelContent}
+                    </ResizablePanel>
+                </div>
 
-                <DataPanel
-                    sceneData={sceneData}
-                    currentTime={currentTime}
-                    showBlocking={showBlocking}
-                    setShowBlocking={setShowBlocking}
-                    showCameraPath={showCameraPath}
-                    setShowCameraPath={setShowCameraPath}
-                    showEmotionData={showEmotionData}
-                    setShowEmotionData={setShowEmotionData}
-                    onAnalyzeScene={handleAnalyzeScene}
-                    isAnalyzing={isAnalyzing}
-                    sceneAnalysis={sceneAnalysis}
-                    analysisError={analysisError}
-                    analysisProgress={analysisProgress}
-                    onAnalyzeCinematics={handleAnalyzeCinematics}
-                    isAnalyzingCinematics={isAnalyzingCinematics}
-                    cinematicAnalysis={cinematicAnalysis}
-                    cinematicAnalysisError={cinematicAnalysisError}
-                    onReconstructScene={handleReconstructScene}
-                    isReconstructing={isReconstructing}
-                    sceneReconstruction={sceneReconstruction}
-                    reconstructionError={reconstructionError}
-                    reconstructionProgress={reconstructionProgress}
-                    chatMessages={chatMessages}
-                    isChatLoading={isChatLoading}
-                    chatError={chatError}
-                    sendChatMessage={sendChatMessage}
-                />
+                 {/* Mobile Layout: Slide-out Panel */}
+                <div className={`
+                    fixed top-0 right-0 h-full w-11/12 max-w-lg z-40
+                    transition-transform duration-300 ease-in-out transform
+                    ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}
+                    xl:hidden 
+                    bg-surface rounded-l-xl flex flex-col overflow-hidden border-l border-border
+                `}>
+                    <div className="flex-grow overflow-y-auto">
+                        {mainPanelContent}
+                    </div>
+                     <div className="flex-shrink-0 h-1/2 border-t border-border">
+                        {chatPanelContent}
+                    </div>
+                </div>
             </main>
         </div>
     );

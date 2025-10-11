@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { SceneReconstruction } from '../types';
+import { colors } from '../colors';
 
 interface PointCloudViewerProps {
     reconstruction: SceneReconstruction;
@@ -19,7 +20,7 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ reconstruction }) =
 
         // Scene, Camera, Renderer
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x334155); // Corresponds to Tailwind's slate-700
+        scene.background = new THREE.Color(colors.surface);
         const camera = new THREE.PerspectiveCamera(75, currentMount.clientWidth / currentMount.clientHeight, 0.1, 1000);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -34,7 +35,7 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ reconstruction }) =
         // Point Cloud Geometry
         const points = reconstruction.pointCloud;
         const positions = new Float32Array(points.length * 3);
-        const colors = new Float32Array(points.length * 3);
+        const colorsArr = new Float32Array(points.length * 3);
         const threeColor = new THREE.Color();
 
         points.forEach((p, i) => {
@@ -43,14 +44,14 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ reconstruction }) =
             positions[i * 3 + 2] = p.position.z;
 
             threeColor.set(p.color);
-            colors[i * 3] = threeColor.r;
-            colors[i * 3 + 1] = threeColor.g;
-            colors[i * 3 + 2] = threeColor.b;
+            colorsArr[i * 3] = threeColor.r;
+            colorsArr[i * 3 + 1] = threeColor.g;
+            colorsArr[i * 3 + 2] = threeColor.b;
         });
         
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colorsArr, 3));
         
         // This centers the geometry on its bounding box center, simplifying positioning.
         geometry.center();
@@ -62,7 +63,7 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ reconstruction }) =
         // Camera Poses Markers
         const cameraPoses = reconstruction.cameraPoses || [];
         const poseGeometry = new THREE.SphereGeometry(0.1, 16, 16);
-        const poseMaterial = new THREE.MeshBasicMaterial({ color: 0xf472b6 }); // Pink
+        const poseMaterial = new THREE.MeshBasicMaterial({ color: colors.error });
 
         // We need to know the center of the original geometry to offset the cameras correctly.
         const center = new THREE.Vector3();
@@ -123,7 +124,7 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ reconstruction }) =
     return (
         <div className="w-full h-full relative cursor-grab active:cursor-grabbing">
             <div ref={mountRef} className="w-full h-full" />
-            <p className="absolute bottom-1 right-2 text-xs text-gray-400 pointer-events-none">3D Point Cloud (Drag to rotate, Scroll to zoom)</p>
+            <p className="absolute bottom-1 right-2 text-xs text-text-secondary pointer-events-none">3D Point Cloud (Drag to rotate, Scroll to zoom)</p>
         </div>
     );
 };

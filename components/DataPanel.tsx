@@ -1,13 +1,13 @@
-
-import React from 'react';
-// FIX: Import `EmotionKeyframe` to use as an explicit generic type argument for `findSegment`.
-import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction } from '../types';
+import React, { useState } from 'react';
+import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo } from '../types';
 import { findSegment, interpolate } from '../utils/interpolation';
 import TimelineGraph from './TimelineGraph';
 import Scene3DView from './Scene3DView';
 import PointCloudViewer from './PointCloudViewer';
-import AIDirectorChat from './AIDirectorChat';
-import type { ChatMessage } from '../hooks/useAIDirectorChat';
+import { ToggleSwitch } from './ToggleSwitch';
+import { getEmotionColor } from '../colors';
+import { AnalysisIcon, CinematicIcon, CloseIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon } from './Icons';
+
 
 interface DataPanelProps {
     sceneData: SceneData;
@@ -18,6 +18,8 @@ interface DataPanelProps {
     setShowCameraPath: (show: boolean) => void;
     showEmotionData: boolean;
     setShowEmotionData: (show: boolean) => void;
+    showDroneView: boolean;
+    setShowDroneView: (show: boolean) => void;
     onAnalyzeScene: () => void;
     isAnalyzing: boolean;
     sceneAnalysis: SceneAnalysis | null;
@@ -32,254 +34,317 @@ interface DataPanelProps {
     sceneReconstruction: SceneReconstruction | null;
     reconstructionError: string | null;
     reconstructionProgress: string | null;
-    // Chat props
-    chatMessages: ChatMessage[];
-    isChatLoading: boolean;
-    chatError: string | null;
-    sendChatMessage: (message: string) => void;
+    onEditFrame: (prompt: string) => void;
+    isEditingImage: boolean;
+    editedImage: EditedImage | null;
+    editImageError: string | null;
+    onGenerateVideo: (prompt: string) => void;
+    isGeneratingVideo: boolean;
+    generatedVideo: GeneratedVideo | null;
+    videoGenerationError: string | null;
+    videoGenerationProgress: string | null;
+    onSeek: (time: number) => void;
+    onClose: () => void;
 }
 
-const getEmotionColor = (intensity: number) => {
-    const hue = (1 - intensity) * 240; // 0 (red) to 240 (blue)
-    return `hsl(${hue}, 80%, 50%)`;
+interface AccordionProps {
+    title: string;
+    icon: React.ReactNode;
+    children: React.ReactNode;
+    isOpen: boolean;
+    onToggle: () => void;
+}
+
+const Accordion: React.FC<AccordionProps> = ({ title, icon, children, isOpen, onToggle }) => {
+    return (
+        <div className="border-b border-border last:border-b-0">
+            <button
+                onClick={onToggle}
+                className="w-full flex justify-between items-center p-3 text-left hover:bg-primary/50 transition-colors focus:outline-none focus:ring-2 focus:ring-accent rounded-md"
+                aria-expanded={isOpen}
+            >
+                <div className="flex items-center gap-3">
+                    <span className="text-accent w-5 h-5">{icon}</span>
+                    <h3 className="text-md font-bold text-text-primary">{title}</h3>
+                </div>
+                <svg
+                    className={`w-5 h-5 transform transition-transform text-text-secondary ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </button>
+            <div
+                className="grid transition-all duration-300 ease-in-out"
+                style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
+            >
+                <div className="overflow-hidden">
+                    <div className="p-4 pt-2">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
-const DataPanel: React.FC<DataPanelProps> = ({
-    sceneData,
-    currentTime,
-    showBlocking,
-    setShowBlocking,
-    showCameraPath,
-    setShowCameraPath,
-    showEmotionData,
-    setShowEmotionData,
-    onAnalyzeScene,
-    isAnalyzing,
-    sceneAnalysis,
-    analysisError,
-    analysisProgress,
-    onAnalyzeCinematics,
-    isAnalyzingCinematics,
-    cinematicAnalysis,
-    cinematicAnalysisError,
-    onReconstructScene,
-    isReconstructing,
-    sceneReconstruction,
-    reconstructionError,
-    reconstructionProgress,
-    chatMessages,
-    isChatLoading,
-    chatError,
-    sendChatMessage,
-}) => {
+// A skeleton loader for a more polished loading state
+const SkeletonLoader: React.FC = () => (
+    <div className="w-full h-full p-4 bg-primary/50 rounded-lg">
+        <div className="animate-pulse space-y-3">
+            <div className="h-4 bg-border rounded w-3/4"></div>
+            <div className="h-4 bg-border rounded w-1/2"></div>
+            <div className="h-4 bg-border rounded w-5/6"></div>
+        </div>
+    </div>
+);
+const ShimmerBox: React.FC<{ text: string }> = ({ text }) => (
+     <div className="relative w-full h-full flex items-center justify-center bg-primary/50 rounded-lg overflow-hidden">
+        <div className="absolute inset-0 w-full h-full bg-border -translate-x-full animate-[shimmer_2s_infinite]"></div>
+         <p className="text-text-secondary z-10">{text}</p>
+         <style>{`
+            @keyframes shimmer {
+                100% { transform: translateX(100%); }
+            }
+         `}</style>
+     </div>
+);
+
+const DataPanel: React.FC<DataPanelProps> = (props) => {
+    const {
+        sceneData, currentTime, showBlocking, setShowBlocking,
+        showCameraPath, setShowCameraPath, showEmotionData, setShowEmotionData,
+        showDroneView, setShowDroneView,
+        onAnalyzeScene, isAnalyzing, sceneAnalysis, analysisError, analysisProgress,
+        onAnalyzeCinematics, isAnalyzingCinematics, cinematicAnalysis, cinematicAnalysisError,
+        onReconstructScene, isReconstructing, sceneReconstruction, reconstructionError, reconstructionProgress,
+        onEditFrame, isEditingImage, editedImage, editImageError,
+        onGenerateVideo, isGeneratingVideo, generatedVideo, videoGenerationError, videoGenerationProgress,
+        onSeek,
+        onClose,
+    } = props;
+
+    const [openAccordion, setOpenAccordion] = useState<string | null>('scene-layout');
+    const [editPrompt, setEditPrompt] = useState<string>('Make the scene look like it was shot on vintage film.');
+    const [videoPrompt, setVideoPrompt] = useState<string>('A close-up shot of the hero, looking determined, with dramatic lighting.');
+
     const totalEmotionalIntensity = sceneData.characters.reduce((acc, char) => {
-        // FIX: Explicitly provide the type to `findSegment` to ensure `start` and `end` are typed correctly as `EmotionKeyframe`.
         const { start, end } = findSegment<EmotionKeyframe>(char.emotion, currentTime);
         const intensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
         return acc + intensity;
     }, 0) / sceneData.characters.length;
     
-    const baseButtonClass = "w-full text-center p-2 rounded-md transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 text-sm";
-    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing;
+    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo;
 
     return (
-        <div className="bg-gray-800 p-4 rounded-xl flex flex-col overflow-y-auto max-h-[calc(100vh-120px)]">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 h-full">
-                <div className="flex flex-col gap-4 overflow-y-auto pr-2">
-                     <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2">Data Layers</h2>
-                     <div className="grid grid-cols-2 gap-2 mb-4">
+        <div className="flex flex-col h-full overflow-hidden">
+            <div className="relative flex-grow flex flex-col p-4 overflow-y-auto">
+                 <button 
+                    onClick={onClose}
+                    className="absolute top-3 right-3 z-50 p-2 rounded-full bg-primary/50 text-text-secondary hover:text-text-primary xl:hidden"
+                    aria-label="Close panel"
+                >
+                    <CloseIcon className="w-5 h-5" />
+                </button>
+                
+                {/* Analysis & Visualization Section */}
+                <div className="flex items-center gap-3 text-text-primary border-b border-border pb-3 mb-2">
+                    <AnalysisIcon className="w-6 h-6 text-accent" />
+                    <h2 className="text-xl font-bold">Analysis & Visualization</h2>
+                </div>
+                
+                <div className="border-t border-border mt-2">
+                    <Accordion title="AI Scene Layout" icon={<SceneLayoutIcon />} isOpen={openAccordion === 'scene-layout'} onToggle={() => setOpenAccordion(openAccordion === 'scene-layout' ? null : 'scene-layout')}>
                         <button
-                            onClick={() => setShowBlocking(!showBlocking)}
-                            className={`${baseButtonClass} ${
-                                showBlocking
-                                    ? 'bg-sky-500 text-white hover:bg-sky-600 focus:ring-sky-500'
-                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-sky-500'
-                            }`}
+                            onClick={onAnalyzeScene}
+                            disabled={anyAnalysisRunning}
+                            className="w-full bg-accent text-text-primary p-2 mb-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Analyze the current scene layout'}
                         >
-                            Bird's Eye Blocking
+                            {isAnalyzing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isAnalyzing ? (analysisProgress || 'Analyzing...') : 'Analyze Scene Layout'}</span>
                         </button>
-                         <button
-                            onClick={() => setShowCameraPath(!showCameraPath)}
-                            className={`${baseButtonClass} ${
-                                showCameraPath
-                                    ? 'bg-pink-500 text-white hover:bg-pink-600 focus:ring-pink-500'
-                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-pink-500'
-                            }`}
-                         >
-                            Camera Data
-                        </button>
-                        <button
-                            onClick={() => setShowEmotionData(!showEmotionData)}
-                            className={`${baseButtonClass} col-span-2 ${
-                                showEmotionData
-                                    ? 'bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-500'
-                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-amber-500'
-                            }`}
-                        >
-                            Emotion Curves
-                        </button>
-                     </div>
-
-                    <div className="border-b border-gray-700 mb-4 pb-4">
-                         <h2 className="text-lg font-semibold mb-3 pb-2">AI Scene Analysis</h2>
-                         <div className="mb-4">
-                            <button
-                                onClick={onAnalyzeScene}
-                                // FIX: Removed isApiKeySet check from disabled logic.
-                                disabled={anyAnalysisRunning}
-                                className="w-full bg-indigo-600 text-white p-2 rounded-md font-semibold hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-                                // FIX: Removed conditional title.
-                                title={'Analyze the current scene layout'}
-                            >
-                                 {isAnalyzing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
-                                 <span>{isAnalyzing ? (analysisProgress || 'Analyzing...') : 'Analyze Scene Layout'}</span>
-                            </button>
-                         </div>
-                         <div className="h-64 mb-4 flex items-center justify-center bg-gray-900/50 rounded-lg">
-                            {isAnalyzing && (
-                                 <div className="text-center p-4">
-                                   <p className="text-gray-400">{analysisProgress || 'AI is analyzing the scene...'}</p>
-                                 </div>
+                        <div className="p-2 border border-border rounded-md mb-4 bg-primary/50">
+                            <ToggleSwitch label="Show Drone View" isEnabled={showDroneView} onToggle={setShowDroneView} />
+                        </div>
+                        <div className="h-64 flex items-center justify-center">
+                            {showDroneView ? (
+                                <>
+                                    {isAnalyzing && <ShimmerBox text={analysisProgress || 'AI is analyzing...'}/>}
+                                    {analysisError && <p className="text-error text-center p-4">{analysisError}</p>}
+                                    {sceneAnalysis && <Scene3DView analysis={sceneAnalysis} />}
+                                    {!isAnalyzing && !analysisError && !sceneAnalysis && <p className="text-text-secondary text-sm">Analyze scene to generate 3D view</p>}
+                                </>
+                            ) : (
+                                <p className="text-text-secondary text-sm italic">Drone view is hidden.</p>
                             )}
-                            {analysisError && <p className="text-red-400 text-center p-4">{analysisError}</p>}
-                            {sceneAnalysis && <Scene3DView analysis={sceneAnalysis} />}
-                            {/* FIX: Removed conditional text based on API key status. */}
-                            {!isAnalyzing && !analysisError && !sceneAnalysis && <p className="text-gray-500">Analyze scene to generate 3D view</p>}
-                         </div>
-                          {sceneAnalysis && (
-                            <div className="space-y-3 text-sm">
-                                <div>
-                                    <h4 className="font-semibold text-gray-300">Environment</h4>
-                                    <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{sceneAnalysis.environmentDescription}</p>
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-gray-300">Overall Mood</h4>
-                                    <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{sceneAnalysis.overallMood}</p>
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-gray-300">Character Details</h4>
-                                    <ul className="space-y-2">
-                                        {sceneAnalysis.actors.map((actor, i) => (
-                                            <li key={i} className="bg-gray-900/50 p-2 rounded-md">
-                                                <p><strong className="text-sky-400">{actor.name}:</strong> <span className="text-gray-300 capitalize">{actor.emotion}</span></p>
-                                                {actor.interaction && (
-                                                    <p className="text-xs text-gray-500 mt-1"><em>&rarr; Interaction: {actor.interaction}</em></p>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
+                        </div>
+                        {sceneAnalysis && !isAnalyzing && showDroneView && (
+                            <div className="space-y-3 text-sm pt-4">
+                                <InfoBlock title="Environment" content={sceneAnalysis.environmentDescription} />
+                                <InfoBlock title="Overall Mood" content={sceneAnalysis.overallMood} />
                             </div>
                         )}
-                    </div>
-                    
-                    <div className="border-b border-gray-700 mb-4 pb-4">
-                        <h2 className="text-lg font-semibold mb-3 pb-2">AI Cinematic Analysis</h2>
-                         <div className="mb-4">
-                            <button
-                                onClick={onAnalyzeCinematics}
-                                disabled={anyAnalysisRunning}
-                                className="w-full bg-teal-600 text-white p-2 rounded-md font-semibold hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-                                title={'Analyze the current frame cinematics'}
-                            >
-                                 {isAnalyzingCinematics && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
-                                 <span>{isAnalyzingCinematics ? 'Analyzing...' : 'Analyze Cinematics'}</span>
-                            </button>
-                         </div>
-                         {isAnalyzingCinematics && (
-                             <div className="text-center p-4 text-gray-400">
-                               <p>AI is analyzing cinematic properties...</p>
-                             </div>
-                         )}
-                         {cinematicAnalysisError && <p className="text-red-400 text-center p-4">{cinematicAnalysisError}</p>}
-                         {cinematicAnalysis && (
+                    </Accordion>
+                    <Accordion title="AI Cinematic Analysis" icon={<CinematicIcon />} isOpen={openAccordion === 'cinematics'} onToggle={() => setOpenAccordion(openAccordion === 'cinematics' ? null : 'cinematics')}>
+                        <button
+                            onClick={onAnalyzeCinematics}
+                            disabled={anyAnalysisRunning}
+                            className="w-full bg-accent text-text-primary p-2 mb-4 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Analyze the current frame cinematics'}
+                        >
+                            {isAnalyzingCinematics && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isAnalyzingCinematics ? 'Analyzing...' : 'Analyze Cinematics'}</span>
+                        </button>
+                        {isAnalyzingCinematics && <SkeletonLoader />}
+                        {cinematicAnalysisError && <p className="text-error text-center p-4">{cinematicAnalysisError}</p>}
+                        {cinematicAnalysis && !isAnalyzingCinematics && (
                             <div className="space-y-3 text-sm">
-                                <div>
-                                    <h4 className="font-semibold text-teal-300">Composition</h4>
-                                    <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.shotComposition}</p>
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-teal-300">Color Palette</h4>
-                                    <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.colorPalette}</p>
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-teal-300">Camera Work</h4>
-                                    <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.cameraWork}</p>
-                                </div>
+                                <InfoBlock title="Composition" content={cinematicAnalysis.shotComposition} />
+                                <InfoBlock title="Color Palette" content={cinematicAnalysis.colorPalette} />
+                                <InfoBlock title="Camera Work" content={cinematicAnalysis.cameraWork} />
                             </div>
                         )}
-                    </div>
-
-                     <div className="border-b border-gray-700 mb-4 pb-4">
-                         <h2 className="text-lg font-semibold mb-3 pb-2">AI 3D Reconstruction</h2>
-                         <div className="mb-4">
-                            <button
-                                onClick={onReconstructScene}
-                                disabled={anyAnalysisRunning}
-                                className="w-full bg-purple-600 text-white p-2 rounded-md font-semibold hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-                                title={'Reconstruct the scene in 3D'}
-                            >
-                                 {isReconstructing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
-                                 <span>{isReconstructing ? (reconstructionProgress || 'Reconstructing...') : 'Reconstruct 3D Scene'}</span>
-                            </button>
-                         </div>
-                         <div className="h-64 mb-4 flex items-center justify-center bg-gray-900/50 rounded-lg">
-                            {isReconstructing && (
-                                 <div className="text-center p-4">
-                                   <p className="text-gray-400">{reconstructionProgress || 'AI is reconstructing the scene...'}</p>
-                                 </div>
-                            )}
-                            {reconstructionError && <p className="text-red-400 text-center p-4">{reconstructionError}</p>}
+                    </Accordion>
+                    <Accordion title="AI 3D Reconstruction" icon={<ReconstructionIcon />} isOpen={openAccordion === 'reconstruction'} onToggle={() => setOpenAccordion(openAccordion === 'reconstruction' ? null : 'reconstruction')}>
+                        <button
+                            onClick={onReconstructScene}
+                            disabled={anyAnalysisRunning}
+                            className="w-full bg-secondary-accent text-primary p-2 mb-4 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Reconstruct the scene in 3D'}
+                        >
+                            {isReconstructing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isReconstructing ? (reconstructionProgress || 'Reconstructing...') : 'Reconstruct 3D Scene'}</span>
+                        </button>
+                        <div className="h-64 flex items-center justify-center">
+                            {isReconstructing && <ShimmerBox text={reconstructionProgress || 'AI is reconstructing...'}/>}
+                            {reconstructionError && <p className="text-error text-center p-4">{reconstructionError}</p>}
                             {sceneReconstruction && <PointCloudViewer reconstruction={sceneReconstruction} />}
-                            {!isReconstructing && !reconstructionError && !sceneReconstruction && <p className="text-gray-500">Reconstruct scene to generate point cloud</p>}
-                         </div>
+                            {!isReconstructing && !reconstructionError && !sceneReconstruction && <p className="text-text-secondary text-sm">Reconstruct scene to generate point cloud</p>}
+                        </div>
+                    </Accordion>
+                    <Accordion title="AI Image Editor (Nano Banana)" icon={<ImageEditorIcon />} isOpen={openAccordion === 'image-editor'} onToggle={() => setOpenAccordion(openAccordion === 'image-editor' ? null : 'image-editor')}>
+                        <textarea
+                            value={editPrompt}
+                            onChange={(e) => setEditPrompt(e.target.value)}
+                            placeholder="Describe your edit (e.g., 'Add a futuristic city in the background')..."
+                            rows={3}
+                            className="w-full bg-primary p-2 rounded-md text-sm placeholder-text-secondary border border-border focus:outline-none focus:ring-2 focus:ring-accent"
+                            disabled={anyAnalysisRunning}
+                        />
+                        <button
+                            onClick={() => onEditFrame(editPrompt)}
+                            disabled={anyAnalysisRunning || !editPrompt.trim()}
+                            className="w-full bg-accent text-text-primary p-2 mt-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Edit the current video frame'}
+                        >
+                            {isEditingImage && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isEditingImage ? 'Editing Frame...' : 'Generate Edit'}</span>
+                        </button>
+                        <div className="h-48 flex items-center justify-center mt-4">
+                            {isEditingImage && <ShimmerBox text="AI is editing your frame..."/>}
+                            {editImageError && <p className="text-error text-center p-4">{editImageError}</p>}
+                            {editedImage && (
+                                <div className="w-full h-full flex flex-col items-center gap-2">
+                                    <img src={`data:image/jpeg;base64,${editedImage.imageData}`} alt="AI Edited Frame" className="w-full h-full object-contain rounded-md" />
+                                    <p className="text-xs text-text-secondary italic text-center w-full max-w-prose">{editedImage.commentary}</p>
+                                </div>
+                            )}
+                            {!isEditingImage && !editImageError && !editedImage && <p className="text-text-secondary text-sm">Edit the current frame using a text prompt.</p>}
+                        </div>
+                    </Accordion>
+
+                    <Accordion title="AI Shot Generator (Veo)" icon={<ShotGeneratorIcon />} isOpen={openAccordion === 'shot-generator'} onToggle={() => setOpenAccordion(openAccordion === 'shot-generator' ? null : 'shot-generator')}>
+                        <textarea
+                            value={videoPrompt}
+                            onChange={(e) => setVideoPrompt(e.target.value)}
+                            placeholder="Describe the shot to generate (e.g., 'An establishing shot of a futuristic city at night')..."
+                            rows={3}
+                            className="w-full bg-primary p-2 rounded-md text-sm placeholder-text-secondary border border-border focus:outline-none focus:ring-2 focus:ring-accent"
+                            disabled={anyAnalysisRunning}
+                        />
+                        <button
+                            onClick={() => onGenerateVideo(videoPrompt)}
+                            disabled={anyAnalysisRunning || !videoPrompt.trim()}
+                            className="w-full bg-secondary-accent text-primary p-2 mt-2 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Generate a new video shot'}
+                        >
+                            {isGeneratingVideo && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isGeneratingVideo ? 'Generating...' : 'Generate Shot'}</span>
+                        </button>
+                        <div className="h-48 flex items-center justify-center mt-4">
+                            {isGeneratingVideo && <ShimmerBox text={videoGenerationProgress || 'AI is generating your video...'}/>}
+                            {videoGenerationError && <p className="text-error text-center p-4">{videoGenerationError}</p>}
+                            {generatedVideo && (
+                                <video src={generatedVideo.videoUrl} controls autoPlay loop className="w-full h-full object-contain rounded-md" />
+                            )}
+                            {!isGeneratingVideo && !videoGenerationError && !generatedVideo && <p className="text-text-secondary text-sm">Generate a new video clip from a text prompt.</p>}
+                        </div>
+                    </Accordion>
+                </div>
+
+                {/* Timeline & Overlays Section */}
+                <div className="border-t border-border mt-4 pt-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                        <TimelineIcon className="w-5 h-5 text-accent" />
+                        <h3 className="text-md font-bold text-text-primary">Timeline & Overlays</h3>
                     </div>
 
+                    <div className="space-y-3 p-3 bg-primary/50 rounded-lg">
+                        <ToggleSwitch label="Character Paths" isEnabled={showBlocking} onToggle={setShowBlocking} />
+                        <ToggleSwitch label="Camera Path" isEnabled={showCameraPath} onToggle={setShowCameraPath} />
+                        <ToggleSwitch label="Emotion Curves" isEnabled={showEmotionData} onToggle={setShowEmotionData} />
+                    </div>
 
-                     <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2">Frame Data</h2>
-                    <div className="mb-4">
-                        <h3 className="text-sm text-gray-300 mb-1">Overall Scene Emotion</h3>
-                        <div className="w-full h-8 rounded-lg transition-colors duration-300 flex items-center justify-center text-xs font-bold" style={{ backgroundColor: getEmotionColor(totalEmotionalIntensity) }}>
-                             INTENSITY: {totalEmotionalIntensity.toFixed(2)}
+                    <div>
+                        <h4 className="text-sm text-text-secondary mb-1">Overall Scene Emotion</h4>
+                        <div className="w-full h-8 rounded-lg transition-colors duration-300 flex items-center justify-center text-xs font-bold text-primary relative overflow-hidden" style={{ backgroundColor: getEmotionColor(totalEmotionalIntensity) }}>
+                            <div className="absolute inset-0 bg-black/10"></div>
+                            <span className="z-10">INTENSITY: {totalEmotionalIntensity.toFixed(2)}</span>
                         </div>
                     </div>
                     
                     <div className="flex-grow">
                         {showCameraPath && (
                             <TimelineGraph
+                                type="complexity"
                                 label="Camera Complexity"
                                 data={sceneData.camera.movement.map(d => ({ time: d.time, intensity: d.complexity, label: d.label }))}
-                                color="#f472b6" // Pink
+                                color={sceneData.camera.pathColor}
                                 height={60}
                                 duration={sceneData.duration}
                                 currentTime={currentTime}
+                                onSeek={onSeek}
+                                noiseFactor={0.4}
                             />
                         )}
                         {showEmotionData && sceneData.characters.map(char => (
-                             <TimelineGraph
+                            <TimelineGraph
                                 key={char.id}
+                                type="emotion"
                                 label={`${char.name} Emotion`}
                                 data={char.emotion}
                                 color={char.pathColor}
-                                height={60}
+                                height={40}
                                 duration={sceneData.duration}
                                 currentTime={currentTime}
+                                onSeek={onSeek}
                             />
                         ))}
                     </div>
-                </div>
-
-                <div className="min-h-0">
-                    <AIDirectorChat 
-                        messages={chatMessages}
-                        isLoading={isChatLoading}
-                        error={chatError}
-                        sendMessage={sendChatMessage}
-                    />
                 </div>
             </div>
         </div>
     );
 };
+
+const InfoBlock: React.FC<{ title: string; content: string }> = ({ title, content }) => (
+    <div>
+        <h4 className="font-bold text-accent">{title}</h4>
+        <p className="text-text-primary bg-primary/50 p-2 rounded-md text-sm max-w-prose leading-relaxed">{content}</p>
+    </div>
+);
 
 export default DataPanel;

@@ -1,4 +1,5 @@
 import type { SceneData } from './types';
+import { colors } from './colors';
 
 export const sceneData: SceneData = {
     videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
@@ -7,8 +8,8 @@ export const sceneData: SceneData = {
         {
             id: 'char1',
             name: 'Hero',
-            color: 'bg-sky-400',
-            pathColor: '#38bdf8',
+            color: 'bg-accent',
+            pathColor: colors.accent,
             blocking: [
                 { time: 0, x: 10, y: 50 },
                 { time: 10, x: 30, y: 40 },
@@ -29,8 +30,8 @@ export const sceneData: SceneData = {
         {
             id: 'char2',
             name: 'Rival',
-            color: 'bg-red-500',
-            pathColor: '#ef4444',
+            color: 'bg-error',
+            pathColor: colors.error,
             blocking: [
                 { time: 0, x: 90, y: 50 },
                 { time: 10, x: 70, y: 60 },
@@ -57,5 +58,6 @@ export const sceneData: SceneData = {
             { time: 40, complexity: 0.6, label: 'Dolly Out', x: 40, y: 50 },
             { time: 60, complexity: 0.1, label: 'Static', x: 40, y: 50 },
         ],
+        pathColor: colors.warning,
     },
 };
