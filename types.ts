@@ -131,3 +131,16 @@ export interface EditedImage {
 export interface GeneratedVideo {
     videoUrl: string; // Blob URL for the generated video
 }
+
+// AI Storyboard Generation
+export interface StoryboardPanel {
+    imageData: string; // base64 encoded image data
+    description: string;
+}
+
+// AI Soundscape Generation
+export interface SoundscapeAnalysis {
+    description: string;
+    keywords: string[];
+    audioUrl?: string;
+}

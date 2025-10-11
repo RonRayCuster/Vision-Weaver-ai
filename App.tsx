@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { presets, Preset } from './presets';
 import { findSegment, interpolate } from './utils/interpolation';
 // FIX: Imported specific keyframe types to use as explicit generic arguments for `findSegment`, resolving type errors.
-import type { Character, CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, SceneData, BlockingKeyframe, CameraKeyframe, EmotionKeyframe } from './types';
+import type { Character, CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, SceneData, BlockingKeyframe, CameraKeyframe, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis } from './types';
 import VideoPlayer from './components/VideoPlayer';
 import PlaybackControls from './components/PlaybackControls';
 import DataPanel from './components/DataPanel';
@@ -10,7 +10,7 @@ import Header from './components/Header';
 import { useVideoPlayback } from './hooks/useVideoPlayback';
 import { useAIDirectorChat } from './hooks/useAIDirectorChat';
 import { useSceneViewOptions } from './hooks/useSceneViewOptions';
-import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData } from './services/geminiService';
+import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData, generateStoryboard, generateSoundscape } from './services/geminiService';
 import AIDirectorChat from './components/AIDirectorChat';
 import { ResizablePanel } from './components/ResizablePanel';
 
@@ -79,6 +79,14 @@ export default function App() {
     const [emotionAnalysisError, setEmotionAnalysisError] = useState<string | null>(null);
     const [emotionAnalysisProgress, setEmotionAnalysisProgress] = useState<string | null>(null);
 
+    const [storyboardPanels, setStoryboardPanels] = useState<StoryboardPanel[] | null>(null);
+    const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
+    const [storyboardError, setStoryboardError] = useState<string | null>(null);
+
+    const [soundscape, setSoundscape] = useState<SoundscapeAnalysis | null>(null);
+    const [isGeneratingSoundscape, setIsGeneratingSoundscape] = useState(false);
+    const [soundscapeError, setSoundscapeError] = useState<string | null>(null);
+
     const [isCinemaMode, setIsCinemaMode] = useState(false);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
 
@@ -105,16 +113,13 @@ export default function App() {
     const handlePresetChange = useCallback((presetId: string) => {
         const newPreset = allPresets.find(p => p.id === presetId);
         if (newPreset) {
+            const oldVideoUrl = currentSceneData.videoUrl;
             setCurrentPresetId(newPreset.id);
             setCurrentSceneData(newPreset.data);
 
             if (videoRef.current) {
                 // Check if the video source needs changing to avoid unnecessary reloads
-                const currentSrc = new URL(videoRef.current.src, window.location.href).href;
-                const newSrc = new URL(newPreset.data.videoUrl, window.location.href).href;
-
-                if (currentSrc !== newSrc) {
-                    videoRef.current.pause();
+                if (oldVideoUrl !== newPreset.data.videoUrl) {
                     videoRef.current.src = newPreset.data.videoUrl;
                     videoRef.current.load();
                 }
@@ -146,10 +151,16 @@ export default function App() {
             setEmotionAnalysisError(null);
             setEmotionAnalysisProgress(null);
 
+            setStoryboardPanels(null);
+            setStoryboardError(null);
+
+            setSoundscape(null);
+            setSoundscapeError(null);
+
             setIsCinemaMode(false);
             setIsPanelOpen(false);
         }
-    }, [allPresets, setCurrentTime, setIsPlaying]);
+    }, [allPresets, setCurrentTime, setIsPlaying, currentSceneData.videoUrl]);
     
     const handleSavePreset = useCallback(() => {
         const presetName = prompt("Enter a name for your new preset:");
@@ -423,6 +434,42 @@ export default function App() {
         }
     }, []);
 
+    const handleGenerateStoryboard = useCallback(async (prompt: string) => {
+        if (!prompt.trim()) return;
+    
+        setIsGeneratingStoryboard(true);
+        setStoryboardError(null);
+        setStoryboardPanels(null);
+    
+        try {
+            const result = await generateStoryboard(prompt);
+            setStoryboardPanels(result);
+        } catch (error) {
+            console.error("Storyboard generation failed:", error);
+            setStoryboardError("Failed to generate the storyboard. Please try again.");
+        } finally {
+            setIsGeneratingStoryboard(false);
+        }
+    }, []);
+    
+    const handleGenerateSoundscape = useCallback(async (prompt: string) => {
+        if (!prompt.trim()) return;
+    
+        setIsGeneratingSoundscape(true);
+        setSoundscapeError(null);
+        setSoundscape(null);
+    
+        try {
+            const result = await generateSoundscape(prompt);
+            setSoundscape(result);
+        } catch (error) {
+            console.error("Soundscape generation failed:", error);
+            setSoundscapeError("Failed to generate the soundscape. Please try again.");
+        } finally {
+            setIsGeneratingSoundscape(false);
+        }
+    }, []);
+
     const handleExecuteAction = useCallback((actionType: string, timestamp: number) => {
         handleScrub(timestamp);
 
@@ -502,6 +549,14 @@ export default function App() {
             isAnalyzingEmotions={isAnalyzingEmotions}
             emotionAnalysisProgress={emotionAnalysisProgress}
             emotionAnalysisError={emotionAnalysisError}
+            onGenerateStoryboard={handleGenerateStoryboard}
+            isGeneratingStoryboard={isGeneratingStoryboard}
+            storyboardPanels={storyboardPanels}
+            storyboardError={storyboardError}
+            onGenerateSoundscape={handleGenerateSoundscape}
+            isGeneratingSoundscape={isGeneratingSoundscape}
+            soundscape={soundscape}
+            soundscapeError={soundscapeError}
             onSeek={handleScrub}
             onClose={() => setIsPanelOpen(false)}
         />

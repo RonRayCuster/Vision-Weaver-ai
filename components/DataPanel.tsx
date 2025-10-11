@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo } from '../types';
+import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, StoryboardPanel, SoundscapeAnalysis } from '../types';
 import { findSegment, interpolate } from '../utils/interpolation';
 import TimelineGraph from './TimelineGraph';
 import Scene3DView from './Scene3DView';
 import PointCloudViewer from './PointCloudViewer';
 import { ToggleSwitch } from './ToggleSwitch';
 import { getEmotionColor } from '../colors';
-import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon, GenerativeIcon } from './Icons';
+import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon, GenerativeIcon, StoryboardIcon, SoundscapeIcon } from './Icons';
 
 
 interface DataPanelProps {
@@ -47,6 +47,14 @@ interface DataPanelProps {
     isAnalyzingEmotions: boolean;
     emotionAnalysisProgress: string | null;
     emotionAnalysisError: string | null;
+    onGenerateStoryboard: (prompt: string) => void;
+    isGeneratingStoryboard: boolean;
+    storyboardPanels: StoryboardPanel[] | null;
+    storyboardError: string | null;
+    onGenerateSoundscape: (prompt: string) => void;
+    isGeneratingSoundscape: boolean;
+    soundscape: SoundscapeAnalysis | null;
+    soundscapeError: string | null;
     onSeek: (time: number) => void;
     onClose: () => void;
 }
@@ -117,6 +125,8 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
         onEditFrame, isEditingImage, editedImage, editImageError,
         onGenerateVideo, isGeneratingVideo, generatedVideo, videoGenerationError, videoGenerationProgress,
         onAnalyzeEmotions, isAnalyzingEmotions, emotionAnalysisProgress, emotionAnalysisError,
+        onGenerateStoryboard, isGeneratingStoryboard, storyboardPanels, storyboardError,
+        onGenerateSoundscape, isGeneratingSoundscape, soundscape, soundscapeError,
         onSeek,
         onClose,
     } = props;
@@ -124,6 +134,8 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
     const [openAccordion, setOpenAccordion] = useState<string | null>('deconstruction');
     const [editPrompt, setEditPrompt] = useState<string>('Make the scene look like it was shot on vintage film.');
     const [videoPrompt, setVideoPrompt] = useState<string>('A close-up shot of the hero, looking determined, with dramatic lighting.');
+    const [storyboardPrompt, setStoryboardPrompt] = useState<string>('A tense close-up of the Hero realizing the truth.');
+    const [soundscapePrompt, setSoundscapePrompt] = useState<string>('An eerie, abandoned spaceship bridge. Distant, humming machinery and the faint sound of cosmic radiation.');
 
     const totalEmotionalIntensity = sceneData.characters.reduce((acc, char) => {
         // Handle potentially empty emotion array from new analysis
@@ -133,7 +145,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
         return acc + intensity;
     }, 0) / (sceneData.characters.length || 1);
     
-    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo || isAnalyzingEmotions;
+    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo || isAnalyzingEmotions || isGeneratingStoryboard || isGeneratingSoundscape;
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -158,7 +170,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                         isOpen={openAccordion === 'deconstruction'} 
                         onToggle={() => setOpenAccordion(openAccordion === 'deconstruction' ? null : 'deconstruction')}
                     >
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                              {/* AI Scene Layout */}
                             <div>
                                 <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
@@ -198,7 +210,6 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     )}
                                 </div>
                             </div>
-                            <hr className="border-border/50" />
 
                             {/* AI Emotional Arc */}
                             <div>
@@ -223,7 +234,6 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     {emotionAnalysisError && <p className="text-error text-center p-2">{emotionAnalysisError}</p>}
                                 </div>
                             </div>
-                             <hr className="border-border/50" />
                             
                              {/* AI Cinematic Analysis */}
                              <div>
@@ -252,7 +262,6 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     )}
                                 </div>
                              </div>
-                            <hr className="border-border/50" />
 
                              {/* AI 3D Reconstruction */}
                             <div>
@@ -288,7 +297,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                         isOpen={openAccordion === 'generative'} 
                         onToggle={() => setOpenAccordion(openAccordion === 'generative' ? null : 'generative')}
                     >
-                         <div className="space-y-4">
+                         <div className="space-y-6">
                               {/* AI Image Editor */}
                              <div>
                                 <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
@@ -326,7 +335,6 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     </div>
                                 </div>
                              </div>
-                             <hr className="border-border/50" />
 
                              {/* AI Shot Generator */}
                               <div>
@@ -362,7 +370,101 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     </div>
                                 </div>
                              </div>
+    
+                            {/* AI Storyboard Artist */}
+                            <div>
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                    <StoryboardIcon className="w-4 h-4 text-text-secondary" />
+                                    AI Storyboard Artist (Imagen)
+                                </h4>
+                                <div className="pl-6 space-y-3">
+                                    <textarea
+                                        value={storyboardPrompt}
+                                        onChange={(e) => setStoryboardPrompt(e.target.value)}
+                                        placeholder="Describe a storyboard panel..."
+                                        rows={3}
+                                        className="w-full bg-primary p-2 rounded-md text-sm placeholder-text-secondary border border-border focus:outline-none focus:ring-2 focus:ring-accent"
+                                        disabled={anyAnalysisRunning}
+                                    />
+                                    <button
+                                        onClick={() => onGenerateStoryboard(storyboardPrompt)}
+                                        disabled={anyAnalysisRunning || !storyboardPrompt.trim()}
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        title={'Generate storyboard panels'}
+                                    >
+                                        {isGeneratingStoryboard && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        <span>{isGeneratingStoryboard ? 'Generating...' : 'Generate Storyboard'}</span>
+                                    </button>
+                                    <div className="h-48 flex items-center justify-center">
+                                        {isGeneratingStoryboard && <ShimmerBox text="AI is drawing your storyboard..." />}
+                                        {storyboardError && <p className="text-error text-center p-4">{storyboardError}</p>}
+                                        {storyboardPanels && (
+                                            <div className="grid grid-cols-3 gap-2 w-full h-full">
+                                                {storyboardPanels.map((panel, index) => (
+                                                    <img 
+                                                        key={index} 
+                                                        src={`data:image/jpeg;base64,${panel.imageData}`} 
+                                                        alt={panel.description} 
+                                                        className="w-full h-full object-cover rounded-md border border-border" 
+                                                        title={panel.description}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                        {!isGeneratingStoryboard && !storyboardError && !storyboardPanels && <p className="text-text-secondary text-sm">Generate B&W storyboard panels from a text prompt.</p>}
+                                    </div>
+                                </div>
+                            </div>
 
+                            {/* AI Sound Designer */}
+                            <div>
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                    <SoundscapeIcon className="w-4 h-4 text-text-secondary" />
+                                    AI Sound Designer
+                                </h4>
+                                <div className="pl-6 space-y-3">
+                                    <textarea
+                                        value={soundscapePrompt}
+                                        onChange={(e) => setSoundscapePrompt(e.target.value)}
+                                        placeholder="Describe a scene to create a soundscape for..."
+                                        rows={3}
+                                        className="w-full bg-primary p-2 rounded-md text-sm placeholder-text-secondary border border-border focus:outline-none focus:ring-2 focus:ring-accent"
+                                        disabled={anyAnalysisRunning}
+                                    />
+                                    <button
+                                        onClick={() => onGenerateSoundscape(soundscapePrompt)}
+                                        disabled={anyAnalysisRunning || !soundscapePrompt.trim()}
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        title={'Generate a soundscape description'}
+                                    >
+                                        {isGeneratingSoundscape && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        <span>{isGeneratingSoundscape ? 'Generating...' : 'Generate Soundscape'}</span>
+                                    </button>
+                                    <div className="flex flex-col items-center justify-center">
+                                        {isGeneratingSoundscape && <div className="h-24 w-full"><ShimmerBox text="AI is designing the soundscape..." /></div>}
+                                        {soundscapeError && <p className="text-error text-center p-4">{soundscapeError}</p>}
+                                        {soundscape && (
+                                            <div className="w-full space-y-3 text-sm">
+                                                {soundscape.audioUrl && (
+                                                    <audio controls src={soundscape.audioUrl} className="w-full h-8">
+                                                        Your browser does not support the audio element.
+                                                    </audio>
+                                                )}
+                                                <InfoBlock title="Soundscape Description" content={soundscape.description} />
+                                                <div>
+                                                    <h4 className="font-bold text-accent mb-1">Keywords</h4>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {soundscape.keywords.map(kw => (
+                                                            <span key={kw} className="bg-primary/50 text-xs text-text-secondary px-2 py-1 rounded">{kw}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {!isGeneratingSoundscape && !soundscapeError && !soundscape && <p className="text-text-secondary text-sm h-24 flex items-center">Generate an ambient soundscape from a text prompt.</p>}
+                                    </div>
+                                </div>
+                            </div>
                          </div>
                     </Accordion>
                 </div>

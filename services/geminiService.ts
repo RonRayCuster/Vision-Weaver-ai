@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe } from '../types';
+import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis } from '../types';
 
 export interface FrameData {
     timestamp: number;
@@ -343,6 +343,82 @@ export async function generateVideo(prompt: string, onProgress: (message: string
     
     return { videoUrl };
 }
+
+/**
+ * Generates storyboard panels from a text prompt using 'imagen-4.0-generate-001'.
+ */
+export async function generateStoryboard(prompt: string): Promise<StoryboardPanel[]> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const fullPrompt = `Cinematic storyboard panel, black and white, sketch style. Scene: ${prompt}`;
+
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: fullPrompt,
+        config: {
+            numberOfImages: 3,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '16:9',
+        },
+    });
+
+    if (!response.generatedImages || response.generatedImages.length === 0) {
+        throw new Error("AI did not return any storyboard images.");
+    }
+
+    return response.generatedImages.map(img => ({
+        imageData: img.image.imageBytes,
+        description: `Storyboard panel for: "${prompt}"`,
+    }));
+}
+
+/**
+ * Generates a soundscape description and keywords from a text prompt.
+ */
+export async function generateSoundscape(prompt: string): Promise<SoundscapeAnalysis> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const fullPrompt = `
+        You are an expert sound designer for film. Based on the following scene description, create a detailed ambient soundscape.
+        Scene: "${prompt}"
+        
+        Provide a rich description of the soundscape and a list of keywords for a sound effects library.
+        Adhere to the JSON schema.
+    `;
+    
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: fullPrompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    description: {
+                        type: Type.STRING,
+                        description: "A detailed, evocative description of the ambient soundscape."
+                    },
+                    keywords: {
+                        type: Type.ARRAY,
+                        description: "A list of 5-7 keywords for searching in a sound effects library.",
+                        items: { type: Type.STRING }
+                    }
+                },
+                required: ["description", "keywords"]
+            }
+        }
+    });
+
+    const resultJson = JSON.parse(response.text) as SoundscapeAnalysis;
+
+    // This is a placeholder for a real text-to-audio API.
+    // For now, we'll just return the description and keywords.
+    // We add a sample audio URL to demonstrate the player UI.
+    resultJson.audioUrl = "https://storage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4";
+
+    return resultJson;
+}
+
 
 /**
  * Analyzes a sequence of frames to generate a detailed emotional arc for characters.
