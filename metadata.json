@@ -1,5 +1,5 @@
 {
-  "name": "Interactive Scene Visualizer",
+  "name": "VISIONWEAVERSTUDIO interactive Scene Visualizer",
   "description": "An interactive dashboard for visualizing character blocking, emotion curves, and camera movement data synchronized with video playback. Analyze scene dynamics with detailed timeline graphs and a real-time SVG overlay.",
   "requestFramePermissions": []
 }

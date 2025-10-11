@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { findSegment, interpolate } from '../utils/interpolation';
 
@@ -20,7 +19,8 @@ interface TimelineGraphProps {
 const TimelineGraph: React.FC<TimelineGraphProps> = ({ data, color, height, duration, currentTime, label }) => {
     const points = data.map(d => `${(d.time / duration) * 100},${height - d.intensity * height}`).join(' ');
 
-    const { start, end } = findSegment(data, currentTime);
+    // FIX: Explicitly provide the type to `findSegment` to ensure `start` and `end` are typed correctly as `TimelineDataPoint`.
+    const { start, end } = findSegment<TimelineDataPoint>(data, currentTime);
     const currentIntensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
     
     // Find the label of the segment we are currently in.

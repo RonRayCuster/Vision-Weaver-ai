@@ -1,4 +1,3 @@
-
 import type { SceneData } from './types';
 
 export const sceneData: SceneData = {
@@ -52,11 +51,11 @@ export const sceneData: SceneData = {
     ],
     camera: {
         movement: [
-            { time: 0, complexity: 0.1, label: 'Static' },
-            { time: 10, complexity: 0.4, label: 'Slow Pan' },
-            { time: 25, complexity: 0.9, label: 'Crash Zoom' },
-            { time: 40, complexity: 0.6, label: 'Dolly Out' },
-            { time: 60, complexity: 0.1, label: 'Static' },
+            { time: 0, complexity: 0.1, label: 'Static', x: 50, y: 50 },
+            { time: 10, complexity: 0.4, label: 'Slow Pan', x: 60, y: 50 },
+            { time: 25, complexity: 0.9, label: 'Crash Zoom', x: 50, y: 50 },
+            { time: 40, complexity: 0.6, label: 'Dolly Out', x: 40, y: 50 },
+            { time: 60, complexity: 0.1, label: 'Static', x: 40, y: 50 },
         ],
     },
 };

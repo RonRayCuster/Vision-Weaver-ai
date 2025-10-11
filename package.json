@@ -1,5 +1,5 @@
 {
-  "name": "interactive-scene-visualizer",
+  "name": "visionweaverstudio-interactive-scene-visualizer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@google/genai": "^1.23.0",
+    "prop-types": "^15.8.1",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

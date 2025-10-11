@@ -1,8 +1,10 @@
-
 import React from 'react';
-import type { SceneData } from '../types';
+// FIX: Import `EmotionKeyframe` to use as an explicit generic type argument for `findSegment`.
+import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction } from '../types';
 import { findSegment, interpolate } from '../utils/interpolation';
 import TimelineGraph from './TimelineGraph';
+import Scene3DView from './Scene3DView';
+import PointCloudViewer from './PointCloudViewer';
 
 interface DataPanelProps {
     sceneData: SceneData;
@@ -13,6 +15,20 @@ interface DataPanelProps {
     setShowCameraPath: (show: boolean) => void;
     showEmotionData: boolean;
     setShowEmotionData: (show: boolean) => void;
+    onAnalyzeScene: () => void;
+    isAnalyzing: boolean;
+    sceneAnalysis: SceneAnalysis | null;
+    analysisError: string | null;
+    analysisProgress: string | null;
+    onAnalyzeCinematics: () => void;
+    isAnalyzingCinematics: boolean;
+    cinematicAnalysis: CinematicAnalysis | null;
+    cinematicAnalysisError: string | null;
+    onReconstructScene: () => void;
+    isReconstructing: boolean;
+    sceneReconstruction: SceneReconstruction | null;
+    reconstructionError: string | null;
+    reconstructionProgress: string | null;
 }
 
 const getEmotionColor = (intensity: number) => {
@@ -28,33 +44,179 @@ const DataPanel: React.FC<DataPanelProps> = ({
     showCameraPath,
     setShowCameraPath,
     showEmotionData,
-    setShowEmotionData
+    setShowEmotionData,
+    onAnalyzeScene,
+    isAnalyzing,
+    sceneAnalysis,
+    analysisError,
+    analysisProgress,
+    onAnalyzeCinematics,
+    isAnalyzingCinematics,
+    cinematicAnalysis,
+    cinematicAnalysisError,
+    onReconstructScene,
+    isReconstructing,
+    sceneReconstruction,
+    reconstructionError,
+    reconstructionProgress,
 }) => {
     const totalEmotionalIntensity = sceneData.characters.reduce((acc, char) => {
-        const { start, end } = findSegment(char.emotion, currentTime);
+        // FIX: Explicitly provide the type to `findSegment` to ensure `start` and `end` are typed correctly as `EmotionKeyframe`.
+        const { start, end } = findSegment<EmotionKeyframe>(char.emotion, currentTime);
         const intensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
         return acc + intensity;
     }, 0) / sceneData.characters.length;
+    
+    const baseButtonClass = "w-full text-center p-2 rounded-md transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 text-sm";
+    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing;
 
     return (
         <div className="bg-gray-800 p-4 rounded-xl flex flex-col overflow-y-auto max-h-[calc(100vh-120px)]">
              <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2">Data Layers</h2>
-             <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
-                <label className="flex items-center space-x-2 p-2 bg-gray-700/50 rounded-md cursor-pointer hover:bg-gray-700 transition-colors">
-                    <input type="checkbox" checked={showBlocking} onChange={() => setShowBlocking(!showBlocking)} className="h-4 w-4 accent-sky-500 bg-gray-900 border-gray-600 rounded focus:ring-sky-500" />
-                    <span>Blocking Paths</span>
-                </label>
-                 <label className="flex items-center space-x-2 p-2 bg-gray-700/50 rounded-md cursor-pointer hover:bg-gray-700 transition-colors">
-                    <input type="checkbox" checked={showCameraPath} onChange={() => setShowCameraPath(!showCameraPath)} className="h-4 w-4 accent-sky-500 bg-gray-900 border-gray-600 rounded focus:ring-sky-500" />
-                    <span>Camera Data</span>
-                </label>
-                <label className="flex items-center space-x-2 p-2 bg-gray-700/50 rounded-md cursor-pointer hover:bg-gray-700 col-span-2 transition-colors">
-                    <input type="checkbox" checked={showEmotionData} onChange={() => setShowEmotionData(!showEmotionData)} className="h-4 w-4 accent-sky-500 bg-gray-900 border-gray-600 rounded focus:ring-sky-500" />
-                    <span>Emotion Curves</span>
-                </label>
+             <div className="grid grid-cols-2 gap-2 mb-4">
+                <button
+                    onClick={() => setShowBlocking(!showBlocking)}
+                    className={`${baseButtonClass} ${
+                        showBlocking
+                            ? 'bg-sky-500 text-white hover:bg-sky-600 focus:ring-sky-500'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-sky-500'
+                    }`}
+                >
+                    Bird's Eye Blocking
+                </button>
+                 <button
+                    onClick={() => setShowCameraPath(!showCameraPath)}
+                    className={`${baseButtonClass} ${
+                        showCameraPath
+                            ? 'bg-pink-500 text-white hover:bg-pink-600 focus:ring-pink-500'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-pink-500'
+                    }`}
+                 >
+                    Camera Data
+                </button>
+                <button
+                    onClick={() => setShowEmotionData(!showEmotionData)}
+                    className={`${baseButtonClass} col-span-2 ${
+                        showEmotionData
+                            ? 'bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-500'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-amber-500'
+                    }`}
+                >
+                    Emotion Curves
+                </button>
              </div>
 
-             <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2">Analysis</h2>
+            <div className="border-b border-gray-700 mb-4 pb-4">
+                 <h2 className="text-lg font-semibold mb-3 pb-2">AI Scene Analysis</h2>
+                 <div className="mb-4">
+                    <button
+                        onClick={onAnalyzeScene}
+                        disabled={anyAnalysisRunning}
+                        className="w-full bg-indigo-600 text-white p-2 rounded-md font-semibold hover:bg-indigo-700 disabled:bg-indigo-900/50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                    >
+                         {isAnalyzing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                         <span>{isAnalyzing ? (analysisProgress || 'Analyzing...') : 'Analyze Scene Layout'}</span>
+                    </button>
+                 </div>
+                 <div className="h-64 mb-4 flex items-center justify-center bg-gray-900/50 rounded-lg">
+                    {isAnalyzing && (
+                         <div className="text-center p-4">
+                           <p className="text-gray-400">{analysisProgress || 'AI is analyzing the scene...'}</p>
+                         </div>
+                    )}
+                    {analysisError && <p className="text-red-400 text-center p-4">{analysisError}</p>}
+                    {sceneAnalysis && <Scene3DView analysis={sceneAnalysis} />}
+                    {!isAnalyzing && !analysisError && !sceneAnalysis && <p className="text-gray-500">Analyze scene to generate 3D view</p>}
+                 </div>
+                  {sceneAnalysis && (
+                    <div className="space-y-3 text-sm">
+                        <div>
+                            <h4 className="font-semibold text-gray-300">Environment</h4>
+                            <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{sceneAnalysis.environmentDescription}</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-300">Overall Mood</h4>
+                            <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{sceneAnalysis.overallMood}</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-300">Character Details</h4>
+                            <ul className="space-y-2">
+                                {sceneAnalysis.actors.map((actor, i) => (
+                                    <li key={i} className="bg-gray-900/50 p-2 rounded-md">
+                                        <p><strong className="text-sky-400">{actor.name}:</strong> <span className="text-gray-300 capitalize">{actor.emotion}</span></p>
+                                        {actor.interaction && (
+                                            <p className="text-xs text-gray-500 mt-1"><em>&rarr; Interaction: {actor.interaction}</em></p>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                )}
+            </div>
+            
+            <div className="border-b border-gray-700 mb-4 pb-4">
+                <h2 className="text-lg font-semibold mb-3 pb-2">AI Cinematic Analysis</h2>
+                 <div className="mb-4">
+                    <button
+                        onClick={onAnalyzeCinematics}
+                        disabled={anyAnalysisRunning}
+                        className="w-full bg-teal-600 text-white p-2 rounded-md font-semibold hover:bg-teal-700 disabled:bg-teal-900/50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                    >
+                         {isAnalyzingCinematics && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                         <span>{isAnalyzingCinematics ? 'Analyzing...' : 'Analyze Cinematics'}</span>
+                    </button>
+                 </div>
+                 {isAnalyzingCinematics && (
+                     <div className="text-center p-4 text-gray-400">
+                       <p>AI is analyzing cinematic properties...</p>
+                     </div>
+                 )}
+                 {cinematicAnalysisError && <p className="text-red-400 text-center p-4">{cinematicAnalysisError}</p>}
+                 {cinematicAnalysis && (
+                    <div className="space-y-3 text-sm">
+                        <div>
+                            <h4 className="font-semibold text-teal-300">Composition</h4>
+                            <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.shotComposition}</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-teal-300">Color Palette</h4>
+                            <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.colorPalette}</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-teal-300">Camera Work</h4>
+                            <p className="text-gray-400 bg-gray-900/50 p-2 rounded-md text-xs">{cinematicAnalysis.cameraWork}</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+             <div className="border-b border-gray-700 mb-4 pb-4">
+                 <h2 className="text-lg font-semibold mb-3 pb-2">AI 3D Reconstruction</h2>
+                 <div className="mb-4">
+                    <button
+                        onClick={onReconstructScene}
+                        disabled={anyAnalysisRunning}
+                        className="w-full bg-purple-600 text-white p-2 rounded-md font-semibold hover:bg-purple-700 disabled:bg-purple-900/50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                    >
+                         {isReconstructing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                         <span>{isReconstructing ? (reconstructionProgress || 'Reconstructing...') : 'Reconstruct 3D Scene'}</span>
+                    </button>
+                 </div>
+                 <div className="h-64 mb-4 flex items-center justify-center bg-gray-900/50 rounded-lg">
+                    {isReconstructing && (
+                         <div className="text-center p-4">
+                           <p className="text-gray-400">{reconstructionProgress || 'AI is reconstructing the scene...'}</p>
+                         </div>
+                    )}
+                    {reconstructionError && <p className="text-red-400 text-center p-4">{reconstructionError}</p>}
+                    {sceneReconstruction && <PointCloudViewer reconstruction={sceneReconstruction} />}
+                    {!isReconstructing && !reconstructionError && !sceneReconstruction && <p className="text-gray-500">Reconstruct scene to generate point cloud</p>}
+                 </div>
+            </div>
+
+
+             <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2">Frame Data</h2>
             <div className="mb-4">
                 <h3 className="text-sm text-gray-300 mb-1">Overall Scene Emotion</h3>
                 <div className="w-full h-8 rounded-lg transition-colors duration-300 flex items-center justify-center text-xs font-bold" style={{ backgroundColor: getEmotionColor(totalEmotionalIntensity) }}>
