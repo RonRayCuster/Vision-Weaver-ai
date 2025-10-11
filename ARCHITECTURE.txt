@@ -1,0 +1,63 @@
+
+Application Architecture Overview
+
+This document describes the technical architecture of the Interactive Scene Visualizer.
+
+---
+1. High-Level Overview
+---
+The Interactive Scene Visualizer is a client-side Single Page Application (SPA) built with React and TypeScript. Its architecture is designed around a centralized state management model within the main `App` component, which promotes a clear, unidirectional data flow.
+
+The `App` component acts as the primary container, managing all application state and handling business logic, including calls to the Google Gemini API. It then passes data and logic down to presentational components responsible for rendering the UI.
+
+---
+2. Component Breakdown
+---
+* App.tsx (Container Component)
+  - Role: The root of the application.
+  - Responsibilities: Manages all primary state (playback time, AI analysis results, UI toggles). Contains all logic for interacting with the Google Gemini API. Interpolates data based on the current time. Passes state and callbacks to child components.
+
+* VideoPlayer.tsx (Presentational Component)
+  - Role: Displays the video and the real-time SVG overlay.
+  - Responsibilities: Renders the <video> element and the <svg> overlay with paths and markers for characters and the camera.
+
+* PlaybackControls.tsx (Presentational Component)
+  - Role: Provides UI for video playback control.
+  - Responsibilities: Renders the play/pause button and a scrubbable timeline. Invokes callbacks from the App component on user interaction.
+
+* DataPanel.tsx (Presentational Component)
+  - Role: The main sidebar for displaying data and triggering AI analyses.
+  - Responsibilities: Renders UI toggles, analysis buttons, and loading/error states. Displays results from AI analyses, often delegating to specialized child components.
+
+* TimelineGraph.tsx (Reusable Component)
+  - Role: Displays a single line graph over time.
+  - Responsibilities: Renders an SVG graph, shows a marker for the current time, and displays the current interpolated value.
+
+* Scene3DView.tsx (Specialized Component)
+  - Role: Visualizes the AI-generated 2D scene layout.
+  - Responsibilities: Renders a top-down view of actors, props, and lights. Handles selection of individual items and displays their properties.
+
+* PointCloudViewer.tsx (Specialized Component)
+  - Role: Renders the 3D scene reconstruction.
+  - Responsibilities: Manages a Three.js scene, camera, and renderer. Implements orbit controls for user interaction.
+
+* AIDirectorChat.tsx (Specialized Component)
+    - Role: Provides a conversational interface with the AI.
+    - Responsibilities: Manages the display of chat history, user input form, and loading states for the AI Director chat.
+
+---
+3. State Management and Data Flow
+---
+The application follows a unidirectional data flow:
+
+1. State Lives in `App.tsx`: All authoritative state is held within the `App` component using `useState` and custom hooks (`useVideoPlayback`, `useAIDirectorChat`).
+
+2. Data Flows Down: State is passed down to child components via props (e.g., `VideoPlayer` receives `characterPositions`).
+
+3. Events Flow Up: Child components communicate with the parent by calling functions passed down as props (e.g., `PlaybackControls` calls `togglePlay`).
+
+4. State is Updated: The function in `App.tsx` updates its state.
+
+5. UI Re-renders: React re-renders the components with the new state, causing the UI to update.
+
+This approach keeps the application predictable and easier to debug, as state changes are managed in a single, centralized location.

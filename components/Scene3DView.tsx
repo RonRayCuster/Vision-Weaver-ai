@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import type { SceneAnalysis, ActorAnalysis, CameraAnalysis, LightAnalysis, PropAnalysis } from '../types';
 
@@ -14,6 +14,20 @@ type SelectedItem =
     | { type: 'prop'; data: PropAnalysis }
     | { type: 'light'; data: LightAnalysis }
     | { type: 'camera'; data: CameraAnalysis };
+
+/**
+ * Defines the structure for an item being dragged.
+ */
+type DraggedItem = 
+    | { type: 'prop'; index: number }
+    | { type: 'light'; index: number };
+
+
+/**
+ * Performance-related constants to limit the number of rendered elements.
+ */
+const MAX_LIGHTS = 25;
+const MAX_PROPS = 25;
 
 
 /**
@@ -112,9 +126,18 @@ const InfoPanel: React.FC<{ item: SelectedItem | null; onClose: () => void }> = 
 
 
 const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
+    const [localAnalysis, setLocalAnalysis] = useState<SceneAnalysis>(analysis);
     const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
+    const [draggedItem, setDraggedItem] = useState<DraggedItem | null>(null);
     const [showLights, setShowLights] = useState(true);
     const [showCamera, setShowCamera] = useState(true);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Sync local state when the analysis prop changes
+    useEffect(() => {
+        setLocalAnalysis(analysis);
+    }, [analysis]);
+
 
     useEffect(() => {
         if (selectedItem) {
@@ -141,10 +164,69 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
         event.stopPropagation();
         setter(prev => !prev);
     };
+    
+    const handleMouseDown = (e: React.MouseEvent, item: DraggedItem) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setDraggedItem(item);
+    };
+
+    const handleMouseUp = () => {
+        setDraggedItem(null);
+    };
+    
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!draggedItem || !containerRef.current) return;
+
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+        const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+        setLocalAnalysis(prev => {
+            const newAnalysis = JSON.parse(JSON.stringify(prev));
+            
+            if (draggedItem.type === 'light') {
+                const light = newAnalysis.lights[draggedItem.index];
+                if(light) {
+                   light.position.x = x;
+                   light.position.y = y;
+                }
+            } else if (draggedItem.type === 'prop') {
+                const prop = newAnalysis.props[draggedItem.index];
+                if(prop) {
+                    prop.position.x = x;
+                    prop.position.y = y;
+                }
+            }
+            
+            return newAnalysis;
+        });
+    };
+
+    const cursorClass = draggedItem ? 'cursor-grabbing' : 'cursor-default';
+    const hasTooManyLights = analysis.lights.length > MAX_LIGHTS;
+    const hasTooManyProps = analysis.props.length > MAX_PROPS;
+
 
     return (
-        <div className="w-full h-full bg-gray-700/50 rounded-lg p-2 relative overflow-hidden" onClick={handleDeselect}>
-            <div className="absolute inset-0 grid grid-cols-10 grid-rows-10">
+        <div 
+            className={`w-full h-full bg-gray-700/50 rounded-lg p-2 relative overflow-hidden ${cursorClass}`} 
+            onClick={handleDeselect}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp} // Stop dragging if mouse leaves the container
+            ref={containerRef}
+        >
+             {/* Performance Warning Messages */}
+            {(hasTooManyLights || hasTooManyProps) && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-yellow-500/20 border border-yellow-600 text-yellow-300 text-xs px-3 py-1 rounded-full z-30 pointer-events-none">
+                    ⚠️ View truncated for performance. 
+                    {hasTooManyLights && ` Displaying ${MAX_LIGHTS}/${analysis.lights.length} lights.`}
+                    {hasTooManyProps && ` Displaying ${MAX_PROPS}/${analysis.props.length} props.`}
+                </div>
+            )}
+
+            <div className="absolute inset-0 grid grid-cols-10 grid-rows-10 pointer-events-none">
                 {[...Array(100)].map((_, i) => (
                     <div key={i} className="border border-gray-600/30"></div>
                 ))}
@@ -152,7 +234,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
             
             <div className="relative w-full h-full">
                 {/* Actors */}
-                {analysis.actors.map((actor, index) => {
+                {localAnalysis.actors.map((actor, index) => {
                     const isSelected = selectedItem?.type === 'actor' && selectedItem.data.name === actor.name;
                     return (
                          <div
@@ -170,7 +252,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                             title={`${actor.name} (${actor.emotion})`}
                             onClick={(e) => handleSelect(e, {type: 'actor', data: actor})}
                         >
-                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded">
+                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded pointer-events-none">
                                 {actor.name}
                             </div>
                         </div>
@@ -185,8 +267,8 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                             key="camera"
                             className="absolute -translate-x-1/2 -translate-y-1/2 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 z-10"
                             style={{
-                                left: `${analysis.camera.position.x}%`,
-                                top: `${analysis.camera.position.y}%`,
+                                left: `${localAnalysis.camera.position.x}%`,
+                                top: `${localAnalysis.camera.position.y}%`,
                                 width: '16px',
                                 height: '10px',
                                 backgroundColor: '#f472b6',
@@ -194,10 +276,10 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                                 transform: `translate(-50%, -50%) scale(${isSelected ? 1.2 : 1})`,
                                 border: '1px solid white'
                             }}
-                            title={`CAM (x:${analysis.camera.position.x}, y:${analysis.camera.position.y}, z:${analysis.camera.position.z})`}
-                            onClick={(e) => handleSelect(e, {type: 'camera', data: analysis.camera})}
+                            title={`CAM (x:${localAnalysis.camera.position.x}, y:${localAnalysis.camera.position.y}, z:${localAnalysis.camera.position.z})`}
+                            onClick={(e) => handleSelect(e, {type: 'camera', data: localAnalysis.camera})}
                         >
-                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded">
+                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded pointer-events-none">
                                 CAM
                            </div>
                         </div>
@@ -205,12 +287,14 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                 })()}
 
                 {/* Lights */}
-                {showLights && analysis.lights.map((light, index) => {
+                {showLights && localAnalysis.lights.slice(0, MAX_LIGHTS).map((light, index) => {
                     const isSelected = selectedItem?.type === 'light' && selectedItem.data === light;
+                    const isDragged = draggedItem?.type === 'light' && draggedItem.index === index;
+                    const cursor = isDragged ? 'cursor-grabbing' : 'cursor-grab';
                     return (
                      <div
                         key={`light-${index}`}
-                        className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full cursor-pointer transition-all duration-200"
+                        className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ${cursor}`}
                         style={{
                             left: `${light.position.x}%`,
                             top: `${light.position.y}%`,
@@ -218,38 +302,44 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                             height: `${8 + light.intensity * 12}px`,
                             backgroundColor: `rgba(252, 211, 77, 0.5)`,
                             boxShadow: `0 0 ${light.intensity * 15}px ${light.intensity * 5}px rgba(252, 211, 77, 0.5)${isSelected ? ', 0 0 12px 3px #facc15' : ''}`,
-                            transform: `translate(-50%, -50%) scale(${isSelected ? 1.2 : 1})`,
+                            transform: `translate(-50%, -50%) scale(${isSelected || isDragged ? 1.2 : 1})`,
+                            zIndex: isDragged ? 20 : 10,
                         }}
                         title={`${light.type} (Intensity: ${light.intensity.toFixed(2)})`}
                         onClick={(e) => handleSelect(e, {type: 'light', data: light})}
+                        onMouseDown={(e) => handleMouseDown(e, { type: 'light', index })}
                     >
-                        <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded">
+                        <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded pointer-events-none">
                             {light.type}
                         </div>
                     </div>
                 )})}
 
                 {/* Props */}
-                {analysis.props.map((prop, index) => {
+                {localAnalysis.props.slice(0, MAX_PROPS).map((prop, index) => {
                     const visuals = getPropVisuals(prop.name);
                     const isSelected = selectedItem?.type === 'prop' && selectedItem.data.name === prop.name;
+                    const isDragged = draggedItem?.type === 'prop' && draggedItem.index === index;
+                    const cursor = isDragged ? 'cursor-grabbing' : 'cursor-grab';
                     const style = {
                         left: `${prop.position.x}%`,
                         top: `${prop.position.y}%`,
                         backgroundColor: visuals.icon === '📦' ? visuals.color : 'transparent',
                         boxShadow: isSelected ? '0 0 10px 2px #ffffff' : 'none',
-                        transform: `translate(-50%, -50%) scale(${isSelected ? 1.2 : 1})`,
+                        transform: `translate(-50%, -50%) scale(${isSelected || isDragged ? 1.2 : 1})`,
+                        zIndex: isDragged ? 20 : 10,
                     };
                     return (
                         <div
                             key={`prop-${index}`}
-                            className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 z-10"
+                            className={`absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center transition-all duration-200 z-10 ${cursor}`}
                             style={style}
                             title={`${prop.name} (x:${prop.position.x}, y:${prop.position.y}, z:${prop.position.z})`}
                             onClick={(e) => handleSelect(e, {type: 'prop', data: prop})}
+                            onMouseDown={(e) => handleMouseDown(e, { type: 'prop', index })}
                         >
-                            <span className="text-base" role="img" aria-label={prop.name}>{visuals.icon}</span>
-                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded">
+                            <span className="text-base pointer-events-none" role="img" aria-label={prop.name}>{visuals.icon}</span>
+                            <div className="absolute top-full mt-1 text-xs text-white whitespace-nowrap bg-black/50 px-1 rounded pointer-events-none">
                                 {prop.name}
                             </div>
                         </div>
@@ -282,7 +372,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                     📷 Camera
                 </button>
             </div>
-            <p className="absolute bottom-1 right-2 text-xs text-gray-400">Top-Down View (Click items to inspect)</p>
+            <p className="absolute bottom-1 right-2 text-xs text-gray-400 pointer-events-none">Top-Down View (Click items to inspect, Drag to move)</p>
         </div>
     );
 };

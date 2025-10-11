@@ -1,0 +1,38 @@
+
+VISIONWEAVERSTUDIO - Project Roadmap
+
+This document outlines the planned features and development phases for the Interactive Scene Visualizer. The goal is to evolve the tool from a scene deconstruction utility into a comprehensive AI-powered co-director for film and animation pre-production.
+
+---
+Phase 1: Core Functionality & Usability Improvements (Near-Term)
+---
+- [ ] UI/UX Refinement: Enhance the user interface for better clarity and ease of use. Improve the responsiveness of all panels.
+- [ ] Performance Optimization: Optimize the rendering of the 3D viewers (Scene3DView, PointCloudViewer) for larger and more complex datasets.
+- [ ] State Persistence: Allow users to save and load scene analysis sessions (including AI-generated data and chat logs) to local files or browser storage.
+- [ ] Export Functionality: Improve the "Export Snapshot" feature to allow exporting analysis data in structured formats like JSON or CSV.
+- [ ] Comprehensive Error Handling: Implement more descriptive error messages and user-friendly recovery options for API failures.
+
+---
+Phase 2: Advanced AI & Multimodal Asset Creation (Mid-Term)
+---
+- [ ] AI Brush (Image Editing): Integrate 'gemini-2.5-flash-image' to allow users to edit video frames directly. For example, "add a hat to the hero" or "change the color of the wall to blue".
+- [ ] Generative Storyboarding: Use 'imagen-4.0-generate-001' to generate storyboard panels or concept art based on descriptions from the AI Director chat.
+- [ ] Shot Prototyping (Video Generation): Integrate 'veo-2.0-generate-001' to generate short video clips based on user prompts, allowing for rapid prototyping of new shots or alternative blocking.
+- [ ] AI-Generated Soundscapes: Use the Gemini model to suggest or generate ambient sound effects and musical moods based on the scene's emotional beat sheet and environment description.
+- [ ] Context-Aware AI Director: Enhance the AI Director chat to have a full understanding of the entire scene timeline, not just the current frame. Use function calling to allow the chat to trigger analyses (e.g., "Analyze the composition at 35 seconds").
+
+---
+Phase 3: Collaboration & Pipeline Integration (Long-Term)
+---
+- [ ] Project & Asset Management: Introduce a system for managing multiple video projects and their associated multimodal assets.
+- [ ] Annotation Tools: Add the ability for users to add time-stamped notes, drawings, and comments directly onto the video player and 3D views.
+- [ ] Real-time Collaboration: Implement features allowing multiple users to view and interact with a scene analysis session simultaneously.
+- [ ] Industry-Standard Exports: Add support for exporting data to formats used in professional film production pipelines (e.g., Final Draft .fdx, storyboarding software, pre-vis tools).
+- [ ] Persistent Memory for AI Director: Develop a system where the AI Director can learn from user feedback and preferences across multiple sessions and projects to provide more tailored advice.
+
+---
+Phase 4: Full Audio Integration & Voice Interaction (Future Vision)
+---
+- [ ] Audio Analysis: Deconstruct the audio track to identify dialogue, sound effects, and music. Visualize the audio waveform on the timeline.
+- [ ] Dialogue Analysis: Analyze dialogue for emotional tone and subtext, and link it to the character emotion curves.
+- [ ] Voice-Based Interaction: Integrate the Gemini Live API ('gemini-2.5-flash-native-audio-preview-09-2025') to enable users to "talk back" to the AI Director using their voice for a more natural, conversational workflow.
