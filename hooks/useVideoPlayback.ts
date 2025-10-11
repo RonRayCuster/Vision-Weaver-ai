@@ -70,5 +70,7 @@ export function useVideoPlayback(videoRef: RefObject<HTMLVideoElement>, duration
         togglePlay,
         handleScrub,
         handleTimeUpdate,
+        setCurrentTime,
+        setIsPlaying,
     };
 }

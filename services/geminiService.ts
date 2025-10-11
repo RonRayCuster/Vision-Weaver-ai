@@ -1,5 +1,10 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo } from '../types';
+import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe } from '../types';
+
+export interface FrameData {
+    timestamp: number;
+    base64: string;
+}
 
 /**
  * Analyzes a sequence of frames to determine the 3D layout, character emotions, and environment.
@@ -337,4 +342,77 @@ export async function generateVideo(prompt: string, onProgress: (message: string
     const videoUrl = URL.createObjectURL(videoBlob);
     
     return { videoUrl };
+}
+
+/**
+ * Analyzes a sequence of frames to generate a detailed emotional arc for characters.
+ */
+export async function analyzeEmotionalArc(
+    frames: FrameData[],
+    characters: { id: string; name: string }[],
+    duration: number
+): Promise<Record<string, EmotionKeyframe[]>> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const characterNames = characters.map(c => c.name);
+
+    const prompt = `
+        Analyze the emotional arc of the characters (${characterNames.join(', ')}) throughout this sequence of video frames. The total video duration is ${duration} seconds.
+        For each character, generate a detailed list of emotional keyframes.
+        You MUST generate one keyframe for EVERY second of the video's duration, from 0 to ${Math.floor(duration)}.
+        Each keyframe must include:
+        1.  'time': The timestamp in seconds (as an integer).
+        2.  'intensity': A float from 0.0 (calm) to 1.0 (highly emotional).
+        3.  'label': A short, nuanced description of the emotion (e.g., "Wary Curiosity", "Fading Anger", "Joyful Surprise").
+
+        Base your analysis on facial expressions, body language, and the context provided by the sequence of frames. Create smooth and realistic transitions between emotions.
+        Return the response as a JSON object where each key is a character name (exactly as provided: ${characterNames.join(', ')}) and the value is an array of their emotional keyframes.
+    `;
+
+    const parts = [
+        { text: prompt },
+        ...frames.map(frame => ({ text: `Frame at timestamp: ${frame.timestamp.toFixed(2)}s` })),
+        ...frames.map(frame => ({ inlineData: { mimeType: 'image/jpeg', data: frame.base64 } }))
+    ];
+
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: characters.reduce((acc, char) => {
+            acc[char.name] = {
+                type: Type.ARRAY,
+                description: `Emotional keyframes for ${char.name}.`,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        time: { type: Type.INTEGER },
+                        intensity: { type: Type.NUMBER },
+                        label: { type: Type.STRING }
+                    },
+                    required: ["time", "intensity", "label"]
+                }
+            };
+            return acc;
+        }, {} as Record<string, any>),
+        required: characterNames
+    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema
+        }
+    });
+
+    const resultJson = JSON.parse(response.text);
+    
+    const analysisById: Record<string, EmotionKeyframe[]> = {};
+    for (const char of characters) {
+        if (resultJson[char.name]) {
+            analysisById[char.id] = resultJson[char.name];
+        }
+    }
+
+    return analysisById;
 }

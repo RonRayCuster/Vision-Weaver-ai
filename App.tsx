@@ -1,7 +1,8 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { sceneData } from './constants';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { presets, Preset } from './presets';
 import { findSegment, interpolate } from './utils/interpolation';
-import type { CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo } from './types';
+// FIX: Imported specific keyframe types to use as explicit generic arguments for `findSegment`, resolving type errors.
+import type { Character, CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, SceneData, BlockingKeyframe, CameraKeyframe, EmotionKeyframe } from './types';
 import VideoPlayer from './components/VideoPlayer';
 import PlaybackControls from './components/PlaybackControls';
 import DataPanel from './components/DataPanel';
@@ -9,13 +10,16 @@ import Header from './components/Header';
 import { useVideoPlayback } from './hooks/useVideoPlayback';
 import { useAIDirectorChat } from './hooks/useAIDirectorChat';
 import { useSceneViewOptions } from './hooks/useSceneViewOptions';
-import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo } from './services/geminiService';
+import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData } from './services/geminiService';
 import AIDirectorChat from './components/AIDirectorChat';
 import { ResizablePanel } from './components/ResizablePanel';
 
 export default function App() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     
+    const [currentPresetId, setCurrentPresetId] = useState<string>(presets[0].id);
+    const [currentSceneData, setCurrentSceneData] = useState<SceneData>(presets[0].data);
+
     const { 
         showBlocking, setShowBlocking, 
         showCameraPath, setShowCameraPath, 
@@ -45,13 +49,62 @@ export default function App() {
     const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
     const [videoGenerationError, setVideoGenerationError] = useState<string | null>(null);
     const [videoGenerationProgress, setVideoGenerationProgress] = useState<string | null>(null);
+    
+    const [emotionalArcAnalysis, setEmotionalArcAnalysis] = useState<Record<string, EmotionKeyframe[]> | null>(null);
+    const [isAnalyzingEmotions, setIsAnalyzingEmotions] = useState(false);
+    const [emotionAnalysisError, setEmotionAnalysisError] = useState<string | null>(null);
+    const [emotionAnalysisProgress, setEmotionAnalysisProgress] = useState<string | null>(null);
 
     const [isCinemaMode, setIsCinemaMode] = useState(false);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
 
-    const { duration } = sceneData;
-    const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate } = useVideoPlayback(videoRef, duration);
+    const { duration } = currentSceneData;
+    const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate, setCurrentTime, setIsPlaying } = useVideoPlayback(videoRef, duration);
     const { messages: chatMessages, isLoading: isChatLoading, error: chatError, sendMessage: sendChatMessage } = useAIDirectorChat();
+
+    const handlePresetChange = useCallback((presetId: string) => {
+        const newPreset = presets.find(p => p.id === presetId);
+        if (newPreset) {
+            setCurrentPresetId(newPreset.id);
+            setCurrentSceneData(newPreset.data);
+
+            if (videoRef.current) {
+                videoRef.current.pause();
+                videoRef.current.src = newPreset.data.videoUrl;
+                videoRef.current.load();
+                videoRef.current.currentTime = 0;
+            }
+            setCurrentTime(0);
+            setIsPlaying(false);
+
+            // Reset all analysis states
+            setSceneAnalysis(null);
+            setAnalysisError(null);
+            setAnalysisProgress(null);
+            
+            setCinematicAnalysis(null);
+            setCinematicAnalysisError(null);
+            
+            setSceneReconstruction(null);
+            setReconstructionError(null);
+            setReconstructionProgress(null);
+            
+            setEditedImage(null);
+            setEditImageError(null);
+
+            setGeneratedVideo(null);
+            setVideoGenerationError(null);
+            setVideoGenerationProgress(null);
+            
+            setEmotionalArcAnalysis(null);
+            setEmotionAnalysisError(null);
+            setEmotionAnalysisProgress(null);
+
+            setIsCinemaMode(false);
+            setIsPanelOpen(false);
+        }
+    }, [setCurrentTime, setIsPlaying]);
+
 
      // Effect to handle Escape key for exiting Cinema Mode/Panel and prevent body scroll
     useEffect(() => {
@@ -81,6 +134,9 @@ export default function App() {
             const videoEl = videoRef.current;
             if (!videoEl) return reject(new Error("Video element not found."));
             
+            const wasPlaying = !videoEl.paused;
+            if (wasPlaying) videoEl.pause();
+
             videoEl.onseeked = () => {
                 const canvas = document.createElement('canvas');
                 canvas.width = videoEl.videoWidth;
@@ -90,6 +146,7 @@ export default function App() {
                 ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
                 resolve(canvas.toDataURL('image/jpeg').split(',')[1]);
                  videoEl.onseeked = null; // Clean up
+                 if (wasPlaying) videoEl.play();
             };
             videoEl.onerror = () => reject(new Error("Video error during seek."));
             videoEl.currentTime = time;
@@ -105,6 +162,9 @@ export default function App() {
 
         const video = videoRef.current;
         const originalTime = video.currentTime;
+        const wasPlaying = !video.paused;
+        if (wasPlaying) video.pause();
+
 
         try {
             const FRAME_COUNT = 3;
@@ -135,6 +195,7 @@ export default function App() {
             setAnalysisProgress(null);
             if (videoRef.current) {
                 videoRef.current.currentTime = originalTime;
+                if(wasPlaying) videoRef.current.play();
             }
         }
     }, [duration, captureFrame]);
@@ -148,6 +209,8 @@ export default function App() {
         
         const video = videoRef.current;
         const originalTime = video.currentTime;
+        const wasPlaying = !video.paused;
+        if (wasPlaying) video.pause();
 
         try {
             const frameData = await captureFrame(originalTime);
@@ -162,6 +225,7 @@ export default function App() {
             setIsAnalyzingCinematics(false);
             if (videoRef.current) {
                 videoRef.current.currentTime = originalTime;
+                if(wasPlaying) videoRef.current.play();
             }
         }
     }, [captureFrame]);
@@ -176,6 +240,8 @@ export default function App() {
 
         const video = videoRef.current;
         const originalTime = video.currentTime;
+        const wasPlaying = !video.paused;
+        if (wasPlaying) video.pause();
 
         try {
             const FRAME_COUNT = 5;
@@ -206,9 +272,54 @@ export default function App() {
             setReconstructionProgress(null);
             if (videoRef.current) {
                 videoRef.current.currentTime = originalTime;
+                 if(wasPlaying) videoRef.current.play();
             }
         }
     }, [duration, captureFrame]);
+    
+    const handleAnalyzeEmotions = useCallback(async () => {
+        if (!videoRef.current) return;
+
+        setIsAnalyzingEmotions(true);
+        setEmotionAnalysisError(null);
+        setEmotionalArcAnalysis(null);
+        setEmotionAnalysisProgress("Preparing for analysis...");
+
+        const video = videoRef.current;
+        const originalTime = video.currentTime;
+        const wasPlaying = !video.paused;
+        if (wasPlaying) video.pause();
+
+        try {
+            const FRAME_COUNT = 15;
+            const frames: FrameData[] = [];
+
+            for (let i = 0; i < FRAME_COUNT; i++) {
+                const timestamp = (i / (FRAME_COUNT - 1)) * duration;
+                setEmotionAnalysisProgress(`Capturing frame ${i + 1} of ${FRAME_COUNT}...`);
+                const frameData = await captureFrame(timestamp);
+                frames.push({ timestamp, base64: frameData });
+            }
+
+            setEmotionAnalysisProgress('Analyzing emotional performance...');
+            
+            const charactersToAnalyze = currentSceneData.characters.map(c => ({ id: c.id, name: c.name }));
+            const result = await analyzeEmotionalArc(frames, charactersToAnalyze, duration);
+            setEmotionalArcAnalysis(result);
+
+        } catch (error) {
+            console.error("Emotional Arc analysis failed:", error);
+            setEmotionAnalysisError("Failed to analyze emotional performance. Please try again.");
+        } finally {
+            setIsAnalyzingEmotions(false);
+            setEmotionAnalysisProgress(null);
+            if (videoRef.current) {
+                videoRef.current.currentTime = originalTime;
+                if(wasPlaying) videoRef.current.play();
+            }
+        }
+    }, [duration, captureFrame, currentSceneData.characters]);
+
 
     const handleEditFrame = useCallback(async (prompt: string) => {
         if (!videoRef.current || !prompt.trim()) return;
@@ -252,14 +363,38 @@ export default function App() {
         }
     }, []);
 
-    const characterPositions: CharacterPosition[] = sceneData.characters.map(char => {
-        const { start, end } = findSegment(char.blocking, currentTime);
+    const activeSceneData = useMemo(() => {
+        if (!emotionalArcAnalysis) {
+            return currentSceneData;
+        }
+
+        const newSceneData: SceneData = JSON.parse(JSON.stringify(currentSceneData));
+
+        newSceneData.characters.forEach((char: Character) => {
+            if (emotionalArcAnalysis[char.id]) {
+                char.emotion = emotionalArcAnalysis[char.id];
+            }
+        });
+
+        return newSceneData;
+    }, [currentSceneData, emotionalArcAnalysis]);
+
+
+    const characterPositions: CharacterPosition[] = activeSceneData.characters.map(char => {
+        // FIX: Added explicit generic type `<BlockingKeyframe>` to the `findSegment` call.
+        // This ensures TypeScript correctly identifies the returned object's shape,
+        // allowing access to properties `x` and `y` and fixing the type error.
+        const { start, end } = findSegment<BlockingKeyframe>(char.blocking, currentTime);
         const x = interpolate(start.x, end.x, start.time, end.time, currentTime);
         const y = interpolate(start.y, end.y, start.time, end.time, currentTime);
         return { ...char, x, y };
     });
 
-    const { start: camStart, end: camEnd } = findSegment(sceneData.camera.movement, currentTime);
+    // FIX: Added explicit generic type `<CameraKeyframe>` to the `findSegment` call.
+    // This resolves type errors by ensuring TypeScript recognizes the returned
+    // `camStart` and `camEnd` objects as `CameraKeyframe` type, allowing access
+    // to `x`, `y`, and `complexity` properties.
+    const { start: camStart, end: camEnd } = findSegment<CameraKeyframe>(activeSceneData.camera.movement, currentTime);
     const cameraX = interpolate(camStart.x, camEnd.x, camStart.time, camEnd.time, currentTime);
     const cameraY = interpolate(camStart.y, camEnd.y, camStart.time, camEnd.time, currentTime);
     const cameraComplexity = interpolate(camStart.complexity, camEnd.complexity, camStart.time, camEnd.time, currentTime);
@@ -267,7 +402,7 @@ export default function App() {
 
     const mainPanelContent = (
          <DataPanel
-            sceneData={sceneData}
+            sceneData={activeSceneData}
             currentTime={currentTime}
             showBlocking={showBlocking}
             setShowBlocking={setShowBlocking}
@@ -300,6 +435,10 @@ export default function App() {
             generatedVideo={generatedVideo}
             videoGenerationError={videoGenerationError}
             videoGenerationProgress={videoGenerationProgress}
+            onAnalyzeEmotions={handleAnalyzeEmotions}
+            isAnalyzingEmotions={isAnalyzingEmotions}
+            emotionAnalysisProgress={emotionAnalysisProgress}
+            emotionAnalysisError={emotionAnalysisError}
             onSeek={handleScrub}
             onClose={() => setIsPanelOpen(false)}
         />
@@ -311,6 +450,31 @@ export default function App() {
             error={chatError}
             sendMessage={sendChatMessage}
         />
+    );
+
+    const videoPlayerSection = (
+        <div className={`flex flex-col gap-6 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
+            <VideoPlayer
+                ref={videoRef}
+                videoUrl={activeSceneData.videoUrl}
+                onTimeUpdate={handleTimeUpdate}
+                showBlocking={showBlocking}
+                characterPositions={characterPositions}
+                showCameraPath={showCameraPath}
+                cameraPath={activeSceneData.camera.movement}
+                cameraPathColor={activeSceneData.camera.pathColor}
+                currentCameraPosition={currentCameraPosition}
+            />
+            <PlaybackControls
+                isPlaying={isPlaying}
+                togglePlay={togglePlay}
+                currentTime={currentTime}
+                duration={duration}
+                onScrub={handleScrub}
+                isCinemaMode={isCinemaMode}
+                onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
+            />
+        </div>
     );
 
     return (
@@ -344,39 +508,41 @@ export default function App() {
             />
 
             <div className={`transition-opacity duration-500 flex-shrink-0 ${isCinemaMode ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
-                <Header onMenuClick={() => setIsPanelOpen(true)} />
+                <Header 
+                    onMenuClick={() => setIsPanelOpen(true)}
+                    presets={presets}
+                    currentPresetId={currentPresetId}
+                    onPresetChange={handlePresetChange}
+                />
             </div>
 
-            <main className="flex-grow p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-0">
-                <div className={`xl:col-span-7 flex flex-col gap-6 fade-in fade-in-delay-2 opacity-0 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
-                    <VideoPlayer
-                        ref={videoRef}
-                        videoUrl={sceneData.videoUrl}
-                        onTimeUpdate={handleTimeUpdate}
-                        showBlocking={showBlocking}
-                        characterPositions={characterPositions}
-                        showCameraPath={showCameraPath}
-                        cameraPath={sceneData.camera.movement}
-                        cameraPathColor={sceneData.camera.pathColor}
-                        currentCameraPosition={currentCameraPosition}
-                    />
-                    <PlaybackControls
-                        isPlaying={isPlaying}
-                        togglePlay={togglePlay}
-                        currentTime={currentTime}
-                        duration={duration}
-                        onScrub={handleScrub}
-                        isCinemaMode={isCinemaMode}
-                        onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
-                    />
+            <main className="flex-grow p-4 lg:p-6 flex min-h-0">
+                 {/* Desktop Layout: Resizable Panels */}
+                <div className="hidden xl:flex w-full h-full min-h-0 fade-in fade-in-delay-2 opacity-0">
+                    <ResizablePanel direction="horizontal" initialSize={60} minSize={40} maxSize={75}>
+                        {/* Left Panel */}
+                        <div className="h-full min-h-0 pr-2">
+                            {videoPlayerSection}
+                        </div>
+                        {/* Right Panel */}
+                        <div className={`h-full min-h-0 pl-2 flex flex-col ${isCinemaMode ? 'opacity-20 pointer-events-none' : ''}`}>
+                            <div className="w-full h-full bg-surface rounded-xl border border-border overflow-hidden">
+                                <ResizablePanel direction="vertical" initialSize={65} minSize={30} maxSize={70}>
+                                    <div className="h-full w-full overflow-hidden">
+                                        {mainPanelContent}
+                                    </div>
+                                    <div className="h-full w-full overflow-hidden border-t-2 border-border">
+                                        {chatPanelContent}
+                                    </div>
+                                </ResizablePanel>
+                            </div>
+                        </div>
+                    </ResizablePanel>
                 </div>
                 
-                {/* Desktop Layout: Resizable Panels */}
-                <div className={`hidden xl:col-span-5 xl:flex min-h-0 fade-in fade-in-delay-3 opacity-0 ${isCinemaMode ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
-                    <ResizablePanel>
-                        {mainPanelContent}
-                        {chatPanelContent}
-                    </ResizablePanel>
+                {/* Mobile/Tablet Layout */}
+                <div className="flex xl:hidden w-full h-full min-h-0 fade-in fade-in-delay-2 opacity-0">
+                    {videoPlayerSection}
                 </div>
 
                  {/* Mobile Layout: Slide-out Panel */}

@@ -6,7 +6,7 @@ import Scene3DView from './Scene3DView';
 import PointCloudViewer from './PointCloudViewer';
 import { ToggleSwitch } from './ToggleSwitch';
 import { getEmotionColor } from '../colors';
-import { AnalysisIcon, CinematicIcon, CloseIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon } from './Icons';
+import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon } from './Icons';
 
 
 interface DataPanelProps {
@@ -43,6 +43,10 @@ interface DataPanelProps {
     generatedVideo: GeneratedVideo | null;
     videoGenerationError: string | null;
     videoGenerationProgress: string | null;
+    onAnalyzeEmotions: () => void;
+    isAnalyzingEmotions: boolean;
+    emotionAnalysisProgress: string | null;
+    emotionAnalysisError: string | null;
     onSeek: (time: number) => void;
     onClose: () => void;
 }
@@ -122,6 +126,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
         onReconstructScene, isReconstructing, sceneReconstruction, reconstructionError, reconstructionProgress,
         onEditFrame, isEditingImage, editedImage, editImageError,
         onGenerateVideo, isGeneratingVideo, generatedVideo, videoGenerationError, videoGenerationProgress,
+        onAnalyzeEmotions, isAnalyzingEmotions, emotionAnalysisProgress, emotionAnalysisError,
         onSeek,
         onClose,
     } = props;
@@ -131,12 +136,14 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
     const [videoPrompt, setVideoPrompt] = useState<string>('A close-up shot of the hero, looking determined, with dramatic lighting.');
 
     const totalEmotionalIntensity = sceneData.characters.reduce((acc, char) => {
+        // Handle potentially empty emotion array from new analysis
+        if (char.emotion.length === 0) return acc;
         const { start, end } = findSegment<EmotionKeyframe>(char.emotion, currentTime);
         const intensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
         return acc + intensity;
-    }, 0) / sceneData.characters.length;
+    }, 0) / (sceneData.characters.length || 1);
     
-    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo;
+    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo || isAnalyzingEmotions;
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -186,6 +193,25 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                 <InfoBlock title="Environment" content={sceneAnalysis.environmentDescription} />
                                 <InfoBlock title="Overall Mood" content={sceneAnalysis.overallMood} />
                             </div>
+                        )}
+                    </Accordion>
+                     <Accordion title="AI Emotional Arc" icon={<EmotionArcIcon />} isOpen={openAccordion === 'emotion-arc'} onToggle={() => setOpenAccordion(openAccordion === 'emotion-arc' ? null : 'emotion-arc')}>
+                        <p className="text-xs text-text-secondary mb-3 leading-relaxed">
+                            Analyze actor performance to generate a nuanced, second-by-second emotional curve for each character. This replaces the default emotion data.
+                        </p>
+                        <button
+                            onClick={onAnalyzeEmotions}
+                            disabled={anyAnalysisRunning}
+                            className="w-full bg-accent text-text-primary p-2 mb-4 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            title={'Generate detailed emotional curves'}
+                        >
+                            {isAnalyzingEmotions && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                            <span>{isAnalyzingEmotions ? (emotionAnalysisProgress || 'Analyzing...') : 'Generate Emotional Arcs'}</span>
+                        </button>
+                        {isAnalyzingEmotions && <ShimmerBox text={emotionAnalysisProgress || 'AI is analyzing performance...'}/>}
+                        {emotionAnalysisError && <p className="text-error text-center p-4">{emotionAnalysisError}</p>}
+                        {!isAnalyzingEmotions && !emotionAnalysisError && (
+                            <p className="text-text-secondary text-sm mt-2 text-center italic">Click the button to begin the performance analysis.</p>
                         )}
                     </Accordion>
                     <Accordion title="AI Cinematic Analysis" icon={<CinematicIcon />} isOpen={openAccordion === 'cinematics'} onToggle={() => setOpenAccordion(openAccordion === 'cinematics' ? null : 'cinematics')}>

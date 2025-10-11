@@ -67,7 +67,22 @@ const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, er
     };
 
     return (
-        <div className="h-full flex flex-col bg-surface rounded-xl border border-border">
+        <div className="h-full flex flex-col">
+            <style>{`
+                @keyframes message-in {
+                    from {
+                        opacity: 0;
+                        transform: translateY(8px) scale(0.98);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+                .animate-message-in {
+                    animation: message-in 0.3s ease-out forwards;
+                }
+            `}</style>
             <div className="p-4 border-b border-border flex-shrink-0 flex justify-between items-center gap-4">
                 <h2 className="text-lg font-bold text-accent">
                     AI Director Chat
@@ -87,7 +102,7 @@ const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, er
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary p-1"
                             aria-label="Clear search"
                         >
-                           <svg xmlns="http://www.w.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
@@ -99,7 +114,7 @@ const AIDirectorChat: React.FC<AIDirectorChatProps> = ({ messages, isLoading, er
                     {filteredMessages.map((msg, index) => (
                         <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                             <div
-                                className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-xl shadow-sm ${
+                                className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-xl shadow-sm animate-message-in ${
                                     msg.role === 'user'
                                         ? 'bg-accent text-text-primary rounded-br-none'
                                         : 'bg-primary/80 text-text-primary rounded-bl-none'
