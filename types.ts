@@ -20,6 +20,10 @@ export interface EmotionKeyframe extends BaseKeyframe {
     label: string;
 }
 
+export interface AnimationKeyframe extends BaseKeyframe {
+    animationLabel: string; // e.g., 'subtle_head_nod', 'shift_weight_left'
+}
+
 export interface CameraKeyframe extends BaseKeyframe {
     complexity: number;
     label: string;
@@ -35,6 +39,7 @@ export interface Character {
     pathColor: string;
     blocking: BlockingKeyframe[];
     emotion: EmotionKeyframe[];
+    animation?: AnimationKeyframe[];
 }
 
 // A Character with its interpolated position at a specific time
@@ -63,6 +68,7 @@ export interface ActorAnalysis {
     position: Vector3;
     emotion: string;
     interaction: string | null;
+    animation?: AnimationKeyframe[]; // Added for client-side use in the 3D view
 }
 
 export interface CameraAnalysis {

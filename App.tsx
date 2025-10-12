@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { presets, Preset } from './presets';
 import { findSegment, interpolate } from './utils/interpolation';
 // FIX: Imported specific keyframe types to use as explicit generic arguments for `findSegment`, resolving type errors.
-import type { Character, CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, SceneData, BlockingKeyframe, CameraKeyframe, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis } from './types';
+import type { Character, CharacterPosition, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, SceneData, BlockingKeyframe, CameraKeyframe, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis, AnimationKeyframe } from './types';
 import VideoPlayer from './components/VideoPlayer';
 import PlaybackControls from './components/PlaybackControls';
 import DataPanel from './components/DataPanel';
@@ -10,13 +10,19 @@ import Header from './components/Header';
 import { useVideoPlayback } from './hooks/useVideoPlayback';
 import { useAIDirectorChat } from './hooks/useAIDirectorChat';
 import { useSceneViewOptions } from './hooks/useSceneViewOptions';
-import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData, generateStoryboard, generateSoundscape } from './services/geminiService';
+import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData, generateStoryboard, generateSoundscape, generateCharacterAnimation } from './services/geminiService';
 import AIDirectorChat from './components/AIDirectorChat';
 import { ResizablePanel } from './components/ResizablePanel';
 import { ToggleSwitch } from './components/ToggleSwitch';
+import TimelineGraph from './components/TimelineGraph';
+import { getEmotionColor } from './colors';
 
 const USER_PRESETS_STORAGE_KEY = 'visionweaver_user_presets';
 const PRESET_ICONS = ['🎬', '🎥', '🍿', '🎞️', '🌟', '💡', '🎭', '✍️'];
+const EMPTY_SCENE_DATA: Omit<SceneData, 'videoUrl' | 'duration'> = {
+    characters: [],
+    camera: { movement: [], pathColor: '#F9AB00' }
+};
 
 export default function App() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -90,81 +96,114 @@ export default function App() {
     const [isGeneratingSoundscape, setIsGeneratingSoundscape] = useState(false);
     const [soundscapeError, setSoundscapeError] = useState<string | null>(null);
 
+    const [characterAnimations, setCharacterAnimations] = useState<Record<string, AnimationKeyframe[]> | null>(null);
+    const [isGeneratingAnimations, setIsGeneratingAnimations] = useState(false);
+    const [animationError, setAnimationError] = useState<string | null>(null);
+    
+    const [suggestedPrompts, setSuggestedPrompts] = useState<Record<string, string>>({});
+
+
     const [isCinemaMode, setIsCinemaMode] = useState(false);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
+    const [videoFileUrl, setVideoFileUrl] = useState<string | null>(null);
+
 
     const { duration } = currentSceneData;
-    const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate, setCurrentTime, setIsPlaying } = useVideoPlayback(videoRef, duration);
+    const { currentTime, isPlaying, togglePlay, handleScrub, handleTimeUpdate, setCurrentTime, setIsPlaying, setDuration } = useVideoPlayback(videoRef);
     const { messages: chatMessages, isLoading: isChatLoading, error: chatError, sendMessage: sendChatMessage } = useAIDirectorChat();
     
     const activeSceneData = useMemo(() => {
-        if (!emotionalArcAnalysis) {
-            return currentSceneData;
+        let newSceneData: SceneData = currentSceneData;
+
+        if (emotionalArcAnalysis) {
+            const dataWithEmotions = JSON.parse(JSON.stringify(newSceneData)) as SceneData;
+            dataWithEmotions.characters.forEach((char: Character) => {
+                if (emotionalArcAnalysis[char.id]) {
+                    char.emotion = emotionalArcAnalysis[char.id];
+                }
+            });
+            newSceneData = dataWithEmotions;
+        }
+        
+        if (characterAnimations) {
+            const dataWithAnimations = JSON.parse(JSON.stringify(newSceneData)) as SceneData;
+            dataWithAnimations.characters.forEach((char: Character) => {
+                if (characterAnimations[char.id]) {
+                    char.animation = characterAnimations[char.id];
+                }
+            });
+            newSceneData = dataWithAnimations;
         }
 
-        const newSceneData: SceneData = JSON.parse(JSON.stringify(currentSceneData));
-
-        newSceneData.characters.forEach((char: Character) => {
-            if (emotionalArcAnalysis[char.id]) {
-                char.emotion = emotionalArcAnalysis[char.id];
-            }
-        });
-
         return newSceneData;
-    }, [currentSceneData, emotionalArcAnalysis]);
+    }, [currentSceneData, emotionalArcAnalysis, characterAnimations]);
+    
+    const resetAllAnalysis = useCallback(() => {
+        setSceneAnalysis(null);
+        setAnalysisError(null);
+        setAnalysisProgress(null);
+        setCinematicAnalysis(null);
+        setCinematicAnalysisError(null);
+        setSceneReconstruction(null);
+        setReconstructionError(null);
+        setReconstructionProgress(null);
+        setEditedImage(null);
+        setEditImageError(null);
+        setOriginalImageForEdit(null);
+        setGeneratedVideo(null);
+        setVideoGenerationError(null);
+        setVideoGenerationProgress(null);
+        setEmotionalArcAnalysis(null);
+        setEmotionAnalysisError(null);
+        setEmotionAnalysisProgress(null);
+        setStoryboardPanels(null);
+        setStoryboardError(null);
+        setSoundscape(null);
+        setSoundscapeError(null);
+        setCharacterAnimations(null);
+        setAnimationError(null);
+        setSuggestedPrompts({});
+        setIsCinemaMode(false);
+        setIsPanelOpen(false);
+    }, []);
 
     const handlePresetChange = useCallback((presetId: string) => {
         const newPreset = allPresets.find(p => p.id === presetId);
         if (newPreset) {
-            const oldVideoUrl = currentSceneData.videoUrl;
             setCurrentPresetId(newPreset.id);
             setCurrentSceneData(newPreset.data);
-
-            if (videoRef.current) {
-                // Check if the video source needs changing to avoid unnecessary reloads
-                if (oldVideoUrl !== newPreset.data.videoUrl) {
-                    videoRef.current.src = newPreset.data.videoUrl;
-                    videoRef.current.load();
-                }
-                videoRef.current.currentTime = 0;
-            }
+            setVideoFileUrl(null); // Clear custom video URL
+            setDuration(newPreset.data.duration);
             setCurrentTime(0);
             setIsPlaying(false);
-
-            // Reset all analysis states
-            setSceneAnalysis(null);
-            setAnalysisError(null);
-            setAnalysisProgress(null);
-            
-            setCinematicAnalysis(null);
-            setCinematicAnalysisError(null);
-            
-            setSceneReconstruction(null);
-            setReconstructionError(null);
-            setReconstructionProgress(null);
-            
-            setEditedImage(null);
-            setEditImageError(null);
-            setOriginalImageForEdit(null);
-
-            setGeneratedVideo(null);
-            setVideoGenerationError(null);
-            setVideoGenerationProgress(null);
-            
-            setEmotionalArcAnalysis(null);
-            setEmotionAnalysisError(null);
-            setEmotionAnalysisProgress(null);
-
-            setStoryboardPanels(null);
-            setStoryboardError(null);
-
-            setSoundscape(null);
-            setSoundscapeError(null);
-
-            setIsCinemaMode(false);
-            setIsPanelOpen(false);
+            resetAllAnalysis();
         }
-    }, [allPresets, setCurrentTime, setIsPlaying, currentSceneData.videoUrl]);
+    }, [allPresets, setCurrentTime, setIsPlaying, setDuration, resetAllAnalysis]);
+
+    const handleVideoFileChange = useCallback((file: File) => {
+        const videoUrl = URL.createObjectURL(file);
+        setVideoFileUrl(videoUrl);
+        setCurrentPresetId("custom");
+        
+        const newSceneData: SceneData = {
+            videoUrl,
+            duration: 0, // Will be updated on metadata load
+            ...EMPTY_SCENE_DATA
+        };
+        setCurrentSceneData(newSceneData);
+        
+        setCurrentTime(0);
+        setIsPlaying(false);
+        resetAllAnalysis();
+    }, [setCurrentTime, setIsPlaying, resetAllAnalysis]);
+
+    const handleVideoMetadataLoaded = useCallback(() => {
+        if(videoRef.current) {
+            const newDuration = videoRef.current.duration;
+            setDuration(newDuration);
+            setCurrentSceneData(prev => ({...prev, duration: newDuration}));
+        }
+    }, [setDuration]);
     
     const handleSavePreset = useCallback(() => {
         const presetName = prompt("Enter a name for your new preset:");
@@ -227,9 +266,31 @@ export default function App() {
             videoEl.onerror = () => reject(new Error("Video error during seek."));
             videoEl.currentTime = time;
         }), []);
+        
+    const updateSuggestedPrompts = useCallback((analysis: SceneAnalysis | CinematicAnalysis) => {
+        const newPrompts: Record<string, string> = {};
+        if ('overallMood' in analysis && 'environmentDescription' in analysis) {
+            const mainActor = analysis.actors.length > 0 ? analysis.actors[0] : null;
+            
+            if (mainActor) {
+                newPrompts.storyboard = `A tense, close-up storyboard of ${mainActor.name} looking ${mainActor.emotion} in a ${analysis.environmentDescription}.`;
+                newPrompts.video = `A cinematic shot of ${mainActor.name} who is ${mainActor.emotion}, set in a ${analysis.environmentDescription}. Mood is ${analysis.overallMood}.`;
+            } else {
+                newPrompts.storyboard = `A storyboard panel depicting a ${analysis.environmentDescription} with a ${analysis.overallMood} mood.`;
+            }
+
+            newPrompts.soundscape = `An ambient soundscape for a ${analysis.environmentDescription}. The mood should be ${analysis.overallMood}.`;
+        }
+
+        if ('colorPalette' in analysis && 'shotComposition' in analysis) {
+            newPrompts.edit = `Enhance the frame to emphasize the ${analysis.colorPalette} and strengthen the ${analysis.shotComposition}. Maybe add a subtle film grain effect.`;
+        }
+        
+        setSuggestedPrompts(prev => ({...prev, ...newPrompts}));
+    }, []);
     
     const handleAnalyzeScene = useCallback(async () => {
-        if (!videoRef.current) return;
+        if (!videoRef.current || duration <= 0) return;
         
         setIsAnalyzing(true);
         setAnalysisError(null);
@@ -262,6 +323,8 @@ export default function App() {
             
             const resultJson = await analyzeSceneLayout(base64Frames);
             setSceneAnalysis(resultJson);
+            updateSuggestedPrompts(resultJson);
+
 
         } catch (error) {
             console.error("Scene analysis failed:", error);
@@ -274,10 +337,10 @@ export default function App() {
                 if(wasPlaying) videoRef.current.play();
             }
         }
-    }, [duration, captureFrame]);
+    }, [duration, captureFrame, updateSuggestedPrompts]);
 
     const handleAnalyzeCinematics = useCallback(async () => {
-        if (!videoRef.current) return;
+        if (!videoRef.current || duration <= 0) return;
 
         setIsAnalyzingCinematics(true);
         setCinematicAnalysisError(null);
@@ -293,6 +356,7 @@ export default function App() {
             
             const resultJson = await analyzeCinematics(frameData);
             setCinematicAnalysis(resultJson);
+            updateSuggestedPrompts(resultJson);
 
         } catch (error) {
             console.error("Cinematic analysis failed:", error);
@@ -304,10 +368,10 @@ export default function App() {
                 if(wasPlaying) videoRef.current.play();
             }
         }
-    }, [captureFrame]);
+    }, [captureFrame, duration, updateSuggestedPrompts]);
 
     const handleReconstructScene = useCallback(async () => {
-        if (!videoRef.current) return;
+        if (!videoRef.current || duration <= 0) return;
 
         setIsReconstructing(true);
         setReconstructionError(null);
@@ -354,7 +418,7 @@ export default function App() {
     }, [duration, captureFrame]);
     
     const handleAnalyzeEmotions = useCallback(async () => {
-        if (!videoRef.current) return;
+        if (!videoRef.current || duration <= 0) return;
 
         setIsAnalyzingEmotions(true);
         setEmotionAnalysisError(null);
@@ -380,12 +444,18 @@ export default function App() {
             setEmotionAnalysisProgress('Analyzing emotional performance...');
             
             const charactersToAnalyze = currentSceneData.characters.map(c => ({ id: c.id, name: c.name }));
+            if (charactersToAnalyze.length === 0) {
+                 setEmotionAnalysisError("No characters defined for this scene. Please load a preset with character data.");
+                 throw new Error("No characters to analyze.");
+            }
             const result = await analyzeEmotionalArc(frames, charactersToAnalyze, duration);
             setEmotionalArcAnalysis(result);
 
         } catch (error) {
             console.error("Emotional Arc analysis failed:", error);
-            setEmotionAnalysisError("Failed to analyze emotional performance. Please try again.");
+            if (!emotionAnalysisError) {
+                setEmotionAnalysisError("Failed to analyze emotional performance. Please try again.");
+            }
         } finally {
             setIsAnalyzingEmotions(false);
             setEmotionAnalysisProgress(null);
@@ -394,11 +464,11 @@ export default function App() {
                 if(wasPlaying) videoRef.current.play();
             }
         }
-    }, [duration, captureFrame, currentSceneData.characters]);
+    }, [duration, captureFrame, currentSceneData.characters, emotionAnalysisError]);
 
 
     const handleEditFrame = useCallback(async (prompt: string) => {
-        if (!videoRef.current || !prompt.trim()) return;
+        if (!videoRef.current || !prompt.trim() || duration <= 0) return;
 
         setIsEditingImage(true);
         setEditImageError(null);
@@ -419,7 +489,7 @@ export default function App() {
         } finally {
             setIsEditingImage(false);
         }
-    }, [captureFrame]);
+    }, [captureFrame, duration]);
 
     const handleGenerateVideo = useCallback(async (prompt: string) => {
         if (!prompt.trim()) return;
@@ -477,6 +547,26 @@ export default function App() {
         }
     }, []);
 
+    const handleGenerateAnimations = useCallback(async () => {
+        if (activeSceneData.characters.length === 0 || duration <= 0) {
+            setAnimationError("Cannot generate animations without character and timeline data.");
+            return;
+        }
+
+        setIsGeneratingAnimations(true);
+        setAnimationError(null);
+        setCharacterAnimations(null);
+        try {
+            const result = await generateCharacterAnimation(activeSceneData.characters, duration);
+            setCharacterAnimations(result);
+        } catch (error) {
+            console.error("Character animation generation failed:", error);
+            setAnimationError("Failed to generate character animations. Please try again.");
+        } finally {
+            setIsGeneratingAnimations(false);
+        }
+    }, [activeSceneData.characters, duration]);
+
     const handleExecuteAction = useCallback((actionType: string, timestamp: number) => {
         handleScrub(timestamp);
 
@@ -497,32 +587,46 @@ export default function App() {
         }
     }, [handleScrub, handleAnalyzeCinematics, handleAnalyzeScene, handleReconstructScene]);
 
+    // FIX: Guard against characters with empty blocking arrays to prevent crashes.
+    // Provide a default static position if no blocking data exists for a character.
     const characterPositions: CharacterPosition[] = activeSceneData.characters.map(char => {
-        // FIX: Added explicit generic type `<BlockingKeyframe>` to the `findSegment` call.
-        // This ensures TypeScript correctly identifies the returned object's shape,
-        // allowing access to properties `x` and `y` and fixing the type error.
-        const { start, end } = findSegment<BlockingKeyframe>(char.blocking, currentTime);
+        const blockingData = char.blocking || [];
+        if (blockingData.length === 0) {
+            return { ...char, x: 50, y: 50 };
+        }
+        const { start, end } = findSegment<BlockingKeyframe>(blockingData, currentTime);
         const x = interpolate(start.x, end.x, start.time, end.time, currentTime);
         const y = interpolate(start.y, end.y, start.time, end.time, currentTime);
         return { ...char, x, y };
     });
 
-    // FIX: Added explicit generic type `<CameraKeyframe>` to the `findSegment` call.
-    // This resolves type errors by ensuring TypeScript recognizes the returned
-    // `camStart` and `camEnd` objects as `CameraKeyframe` type, allowing access
-    // to `x`, `y`, and `complexity` properties.
-    const { start: camStart, end: camEnd } = findSegment<CameraKeyframe>(activeSceneData.camera.movement, currentTime);
+    // FIX: Guard against empty camera movement array to prevent crashes when loading custom videos without camera data.
+    // When the array is empty, provide a default static camera position.
+    const cameraMovementData = activeSceneData.camera?.movement || [];
+    const { start: camStart, end: camEnd } = cameraMovementData.length > 0
+        ? findSegment<CameraKeyframe>(cameraMovementData, currentTime)
+        : {
+            start: { time: 0, x: 50, y: 50, complexity: 0, label: 'Static' },
+            end: { time: 0, x: 50, y: 50, complexity: 0, label: 'Static' }
+          };
+
     const cameraX = interpolate(camStart.x, camEnd.x, camStart.time, camEnd.time, currentTime);
     const cameraY = interpolate(camStart.y, camEnd.y, camStart.time, camEnd.time, currentTime);
     const cameraComplexity = interpolate(camStart.complexity, camEnd.complexity, camStart.time, camEnd.time, currentTime);
     const currentCameraPosition = { x: cameraX, y: cameraY, complexity: cameraComplexity };
+    
+    const totalEmotionalIntensity = useMemo(() => {
+        if (!activeSceneData.characters || activeSceneData.characters.length === 0) return 0;
+        return activeSceneData.characters.reduce((acc, char) => {
+            if (char.emotion.length === 0) return acc;
+            const { start, end } = findSegment<EmotionKeyframe>(char.emotion, currentTime);
+            const intensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
+            return acc + intensity;
+        }, 0) / (activeSceneData.characters.length || 1);
+    }, [activeSceneData.characters, currentTime]);
 
     const mainPanelContent = (
          <DataPanel
-            sceneData={activeSceneData}
-            currentTime={currentTime}
-            showCameraPath={showCameraPath}
-            showEmotionData={showEmotionData}
             showDroneView={showDroneView}
             setShowDroneView={setShowDroneView}
             onAnalyzeScene={handleAnalyzeScene}
@@ -561,7 +665,10 @@ export default function App() {
             isGeneratingSoundscape={isGeneratingSoundscape}
             soundscape={soundscape}
             soundscapeError={soundscapeError}
-            onSeek={handleScrub}
+            onGenerateAnimations={handleGenerateAnimations}
+            isGeneratingAnimations={isGeneratingAnimations}
+            animationError={animationError}
+            suggestedPrompts={suggestedPrompts}
             onClose={() => setIsPanelOpen(false)}
         />
     );
@@ -576,11 +683,12 @@ export default function App() {
     );
 
     const videoPlayerSection = (
-        <div className={`flex flex-col gap-3 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
+        <div className={`flex flex-col gap-4 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
             <VideoPlayer
                 ref={videoRef}
                 videoUrl={activeSceneData.videoUrl}
                 onTimeUpdate={handleTimeUpdate}
+                onMetadataLoaded={handleVideoMetadataLoaded}
                 showBlocking={showBlocking}
                 characterPositions={characterPositions}
                 showCameraPath={showCameraPath}
@@ -601,6 +709,45 @@ export default function App() {
                 <ToggleSwitch label="Character Paths" isEnabled={showBlocking} onToggle={setShowBlocking} />
                 <ToggleSwitch label="Camera Path" isEnabled={showCameraPath} onToggle={setShowCameraPath} />
                 <ToggleSwitch label="Emotion Curves" isEnabled={showEmotionData} onToggle={setShowEmotionData} />
+            </div>
+             {/* Timeline Graphs Section */}
+            <div className="bg-surface p-2 rounded-xl border border-border shadow-lg space-y-3">
+                 <div>
+                    <h4 className="text-sm text-text-secondary mb-1 px-2">Overall Scene Emotion</h4>
+                    <div className="w-full h-8 rounded-lg transition-colors duration-300 flex items-center justify-center text-xs font-bold text-primary relative overflow-hidden" style={{ backgroundColor: getEmotionColor(totalEmotionalIntensity) }}>
+                        <div className="absolute inset-0 bg-black/10"></div>
+                        <span className="z-10">INTENSITY: {totalEmotionalIntensity.toFixed(2)}</span>
+                    </div>
+                </div>
+                
+                <div className="flex-grow">
+                    {showCameraPath && activeSceneData.camera.movement.length > 0 && (
+                        <TimelineGraph
+                            type="complexity"
+                            label="Camera Complexity"
+                            data={activeSceneData.camera.movement.map(d => ({ time: d.time, intensity: d.complexity, label: d.label }))}
+                            color={activeSceneData.camera.pathColor}
+                            height={60}
+                            duration={duration}
+                            currentTime={currentTime}
+                            onSeek={handleScrub}
+                            noiseFactor={0.4}
+                        />
+                    )}
+                    {showEmotionData && activeSceneData.characters.map(char => (
+                        char.emotion.length > 0 && <TimelineGraph
+                            key={char.id}
+                            type="emotion"
+                            label={`${char.name} Emotion`}
+                            data={char.emotion}
+                            color={char.pathColor}
+                            height={40}
+                            duration={duration}
+                            currentTime={currentTime}
+                            onSeek={handleScrub}
+                        />
+                    ))}
+                </div>
             </div>
         </div>
     );
@@ -642,6 +789,7 @@ export default function App() {
                     currentPresetId={currentPresetId}
                     onPresetChange={handlePresetChange}
                     onSavePreset={handleSavePreset}
+                    onVideoFileChange={handleVideoFileChange}
                 />
             </div>
 
@@ -650,7 +798,7 @@ export default function App() {
                 <div className="hidden xl:flex w-full h-full min-h-0 fade-in fade-in-delay-2 opacity-0">
                     <ResizablePanel direction="horizontal" initialSize={60} minSize={40} maxSize={75}>
                         {/* Left Panel */}
-                        <div className="h-full min-h-0 pr-2">
+                        <div className="h-full min-h-0 pr-2 overflow-y-auto">
                             {videoPlayerSection}
                         </div>
                         {/* Right Panel */}
@@ -670,7 +818,7 @@ export default function App() {
                 </div>
                 
                 {/* Mobile/Tablet Layout */}
-                <div className="flex xl:hidden w-full h-full min-h-0 fade-in fade-in-delay-2 opacity-0">
+                <div className="flex xl:hidden w-full h-full min-h-0 fade-in fade-in-delay-2 opacity-0 overflow-y-auto">
                     {videoPlayerSection}
                 </div>
 

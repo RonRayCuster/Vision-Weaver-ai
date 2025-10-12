@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis } from '../types';
+import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis, Character, AnimationKeyframe } from '../types';
 
 // =================================================================
 // Reusable & Specific Schema Snippets
@@ -511,4 +511,83 @@ export async function analyzeEmotionalArc(
     }
 
     return analysisById;
+}
+
+/**
+ * Generates simple character animation keyframes based on emotion and blocking data.
+ */
+export async function generateCharacterAnimation(
+    characters: Character[],
+    duration: number
+): Promise<Record<string, AnimationKeyframe[]>> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const characterDataForPrompt = characters.map(c => ({
+        name: c.name,
+        emotion: c.emotion,
+        blocking: c.blocking,
+    }));
+
+    const availableAnimations = ['idle', 'subtle_head_nod', 'shake_head_no', 'look_down', 'shift_weight_left', 'shift_weight_right', 'hands_on_hips', 'arms_crossed'];
+
+    const prompt = `
+        You are an expert character animator. Based on the provided emotion curves and blocking data for several characters over a ${duration}-second scene, generate a sequence of animation keyframes.
+
+        The animation should reflect the character's emotional state and movement. For example, an angry character might have 'arms_crossed', a sad character might 'look_down'. An 'idle' state is the default. Place keyframes at logical points where an animation state might change.
+
+        For each character, provide an array of keyframes. Each keyframe must have a 'time' (in seconds) and an 'animationLabel'.
+        The 'animationLabel' MUST be one of the following predefined values: ${availableAnimations.join(', ')}.
+
+        Character Data:
+        ${JSON.stringify(characterDataForPrompt, null, 2)}
+
+        Return a single JSON object where each key is a character name and the value is their array of animation keyframes.
+    `;
+
+    const characterNames = characters.map(c => c.name);
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: characters.reduce((acc, char) => {
+            acc[char.name] = {
+                type: Type.ARRAY,
+                description: `Animation keyframes for ${char.name}.`,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        time: { type: Type.NUMBER },
+                        animationLabel: { type: Type.STRING }
+                    },
+                    required: ["time", "animationLabel"]
+                }
+            };
+            return acc;
+        }, {} as Record<string, any>),
+        required: characterNames
+    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+        }
+    });
+
+    const resultJson = JSON.parse(response.text);
+    
+    const animationById: Record<string, AnimationKeyframe[]> = {};
+    for (const char of characters) {
+        if (resultJson[char.name]) {
+            // Ensure the first keyframe is at time 0
+            const anims = resultJson[char.name] as AnimationKeyframe[];
+            if (!anims.some(a => a.time === 0)) {
+                anims.unshift({ time: 0, animationLabel: 'idle' });
+            }
+            anims.sort((a, b) => a.time - b.time);
+            animationById[char.id] = anims;
+        }
+    }
+
+    return animationById;
 }

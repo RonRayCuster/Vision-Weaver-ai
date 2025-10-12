@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import type { SceneAnalysis, ActorAnalysis, CameraAnalysis, LightAnalysis, PropAnalysis, DynamicFeedback } from '../types';
+import type { SceneAnalysis, ActorAnalysis, CameraAnalysis, LightAnalysis, PropAnalysis, DynamicFeedback, SceneData, BlockingKeyframe, EmotionKeyframe } from '../types';
 import { colors } from '../colors';
 import { ExportIcon } from './Icons';
 import PerspectiveView from './PerspectiveView';
 import { getDynamicFeedbackForChange } from '../services/geminiService';
+import { findSegment, interpolate } from '../utils/interpolation';
 
 interface Scene3DViewProps {
-    analysis: SceneAnalysis;
+    analysis?: SceneAnalysis;
 }
 
 export type SelectedItem =
@@ -19,6 +20,7 @@ export type SelectedItem =
 type DraggedItem = 
     | { type: 'prop'; index: number }
     | { type: 'light'; index: number }
+    | { type: 'actor'; index: number }
     | { type: 'camera' };
 
 const MAX_LIGHTS = 25;
@@ -154,18 +156,21 @@ const DynamicFeedbackPanel: React.FC<{ feedback: DynamicFeedback | null; isLoadi
 
 
 const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
-    const [localAnalysis, setLocalAnalysis] = useState<SceneAnalysis>(analysis);
+    
+    const [localAnalysis, setLocalAnalysis] = useState<SceneAnalysis | undefined>(analysis);
     const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
     const [draggedItem, setDraggedItem] = useState<DraggedItem | null>(null);
     const [showLights, setShowLights] = useState(true);
     const [showCamera, setShowCamera] = useState(true);
-    const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+    const [viewMode, setViewMode] = useState<'2d' | '3d'>('3d');
     const [dynamicFeedback, setDynamicFeedback] = useState<DynamicFeedback | null>(null);
     const [isFetchingFeedback, setIsFetchingFeedback] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const feedbackRequestTimer = useRef<number | null>(null);
-
-    useEffect(() => setLocalAnalysis(analysis), [analysis]);
+    
+    useEffect(() => {
+        setLocalAnalysis(analysis);
+    }, [analysis]);
 
     useEffect(() => {
         if (selectedItem) {
@@ -226,19 +231,21 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
     };
 
     const handleMouseUp = () => {
-        if (draggedItem) {
-            let movedItem: SelectedItem | null = null;
-            if (draggedItem.type === 'camera') {
-                movedItem = { type: 'camera', data: localAnalysis.camera };
-            } else if (draggedItem.type === 'light') {
-                movedItem = { type: 'light', data: localAnalysis.lights[draggedItem.index] };
-            } else if (draggedItem.type === 'prop') {
-                movedItem = { type: 'prop', data: localAnalysis.props[draggedItem.index] };
-            }
+        if (!draggedItem || !localAnalysis) return;
 
-            if (movedItem) {
-                triggerFeedback(localAnalysis, movedItem);
-            }
+        let movedItem: SelectedItem | null = null;
+        if (draggedItem.type === 'camera') {
+            movedItem = { type: 'camera', data: localAnalysis.camera };
+        } else if (draggedItem.type === 'light') {
+            movedItem = { type: 'light', data: localAnalysis.lights[draggedItem.index] };
+        } else if (draggedItem.type === 'prop') {
+            movedItem = { type: 'prop', data: localAnalysis.props[draggedItem.index] };
+        } else if (draggedItem.type === 'actor') {
+            movedItem = { type: 'actor', data: localAnalysis.actors[draggedItem.index] };
+        }
+
+        if (movedItem) {
+            triggerFeedback(localAnalysis, movedItem);
         }
         setDraggedItem(null);
     };
@@ -250,6 +257,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
         const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
 
         setLocalAnalysis(prev => {
+            if (!prev) return prev;
             const newAnalysis = JSON.parse(JSON.stringify(prev));
             if (draggedItem.type === 'light' && newAnalysis.lights[draggedItem.index]) {
                 newAnalysis.lights[draggedItem.index].position.x = x;
@@ -257,6 +265,9 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
             } else if (draggedItem.type === 'prop' && newAnalysis.props[draggedItem.index]) {
                 newAnalysis.props[draggedItem.index].position.x = x;
                 newAnalysis.props[draggedItem.index].position.y = y;
+            } else if (draggedItem.type === 'actor' && newAnalysis.actors[draggedItem.index]) {
+                newAnalysis.actors[draggedItem.index].position.x = x;
+                newAnalysis.actors[draggedItem.index].position.y = y;
             } else if (draggedItem.type === 'camera' && newAnalysis.camera) {
                 newAnalysis.camera.position.x = x;
                 newAnalysis.camera.position.y = y;
@@ -313,6 +324,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
 
     const handleExportSvg = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!localAnalysis) return;
         const svgData = generateSvgString(localAnalysis, showLights, showCamera);
         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const svgUrl = URL.createObjectURL(svgBlob);
@@ -325,7 +337,24 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
         URL.revokeObjectURL(svgUrl);
     };
 
+    const handleExportJson = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!localAnalysis) return;
+        const jsonData = JSON.stringify(localAnalysis, null, 2); // Pretty print JSON
+        const jsonBlob = new Blob([jsonData], { type: 'application/json' });
+        const jsonUrl = URL.createObjectURL(jsonBlob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = jsonUrl;
+        downloadLink.download = 'visionweaver-scene-export.json';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(jsonUrl);
+    };
+
     const cursorClass = viewMode === '2d' && draggedItem ? 'cursor-grabbing' : 'cursor-default';
+    if (!localAnalysis) return <div className="w-full h-full bg-primary rounded-lg flex items-center justify-center text-text-secondary">Analyze the scene to see the 3D View</div>;
+
 
     return (
         <div 
@@ -359,10 +388,12 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                     <div className="relative w-full h-full">
                         {localAnalysis.actors.map((actor, index) => {
                             const isSelected = selectedItem?.type === 'actor' && selectedItem.data.name === actor.name;
+                            const isDragged = draggedItem?.type === 'actor' && draggedItem.index === index;
+                            const cursor = (isDragged ? 'cursor-grabbing' : 'cursor-grab');
                             return (
                                  <div
                                     key={`actor-${index}`}
-                                    className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 z-10 ${isSelected ? 'pulse-animation' : ''}`}
+                                    className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center transition-all duration-200 z-10 ${cursor} ${isSelected ? 'pulse-animation' : ''}`}
                                     style={{
                                         left: `${actor.position.x}%`,
                                         top: `${actor.position.y}%`,
@@ -370,10 +401,13 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                                         height: '12px',
                                         backgroundColor: colors.accent,
                                         '--glow-color': colors.accent,
-                                        transform: `translate(-50%, -50%) scale(${isSelected ? 1.3 : 1})`,
+                                        transform: `translate(-50%, -50%) scale(${isSelected || isDragged ? 1.3 : 1})`,
+                                        opacity: isDragged ? 0.75 : 1,
+                                        zIndex: isDragged ? 20 : 10,
                                     } as React.CSSProperties}
                                     title={`${actor.name} (${actor.emotion})`}
                                     onClick={(e) => handleSelect(e, {type: 'actor', data: actor})}
+                                    onMouseDown={(e) => handleMouseDown(e, { type: 'actor', index })}
                                 >
                                     <div className="absolute top-full mt-1.5 text-xs text-text-primary whitespace-nowrap bg-primary/70 px-1.5 py-0.5 rounded pointer-events-none shadow-md">
                                         {actor.name}
@@ -385,7 +419,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                          {showCamera && localAnalysis.camera && (() => {
                             const isSelected = selectedItem?.type === 'camera';
                             const isDragged = draggedItem?.type === 'camera';
-                            const cursor = isDragged ? 'cursor-grabbing' : 'cursor-grab';
+                            const cursor = (isDragged ? 'cursor-grabbing' : 'cursor-grab');
                             return (
                                  <div
                                     key="camera"
@@ -416,7 +450,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                         {showLights && localAnalysis.lights.slice(0, MAX_LIGHTS).map((light, index) => {
                             const isSelected = selectedItem?.type === 'light' && selectedItem.data === light;
                             const isDragged = draggedItem?.type === 'light' && draggedItem.index === index;
-                            const cursor = isDragged ? 'cursor-grabbing' : 'cursor-grab';
+                            const cursor = (isDragged ? 'cursor-grabbing' : 'cursor-grab');
                             const lightBaseShadow = `0 0 ${light.intensity * 25}px ${light.intensity * 8}px ${colors.warning}99`;
 
                             return (
@@ -445,7 +479,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                             const visuals = getPropVisuals(prop.name);
                             const isSelected = selectedItem?.type === 'prop' && selectedItem.data.name === prop.name;
                             const isDragged = draggedItem?.type === 'prop' && draggedItem.index === index;
-                            const cursor = isDragged ? 'cursor-grabbing' : 'cursor-grab';
+                            const cursor = (isDragged ? 'cursor-grabbing' : 'cursor-grab');
                             const glowColor = visuals.color !== colors['text-secondary'] ? visuals.color : colors['text-primary'];
                             
                             return (
@@ -481,6 +515,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                     showLights={showLights}
                     showCamera={showCamera}
                     onItemMoved={handleItemMoved}
+                    isPlaybackMode={false}
                 />
             )}
             
@@ -540,11 +575,19 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
                            <ExportIcon className="w-3.5 h-3.5" />
                         </button>
                     )}
+                    <button
+                        onClick={handleExportJson}
+                        className="px-2.5 py-1.5 rounded-md transition-all font-semibold flex items-center gap-1.5 shadow-md border bg-surface/80 text-text-secondary hover:bg-surface border-border"
+                        title="Export Scene Data as JSON"
+                    >
+                       <ExportIcon className="w-3.5 h-3.5" />
+                       <span className="font-semibold text-xs">JSON</span>
+                    </button>
                 </div>
             </div>
             <p className="absolute bottom-1 right-2 text-[10px] text-text-secondary/50 pointer-events-none">
-                {viewMode === '2d' 
-                    ? 'Top-Down View' 
+                {viewMode === '2d'
+                    ? 'Top-Down View: Drag to move elements' 
                     : '3D View: Drag to Rotate | Scroll to Zoom | Right-drag to Pan'}
             </p>
         </div>
@@ -552,12 +595,7 @@ const Scene3DView: React.FC<Scene3DViewProps> = ({ analysis }) => {
 };
 
 Scene3DView.propTypes = {
-    analysis: PropTypes.shape({
-        actors: PropTypes.arrayOf(PropTypes.shape({ name: PropTypes.string.isRequired })).isRequired,
-        camera: PropTypes.shape({ position: PropTypes.object.isRequired }).isRequired,
-        lights: PropTypes.arrayOf(PropTypes.shape({ type: PropTypes.string.isRequired })).isRequired,
-        props: PropTypes.arrayOf(PropTypes.shape({ name: PropTypes.string.isRequired })).isRequired,
-    }).isRequired,
+    analysis: PropTypes.object,
 };
 
 export default Scene3DView;

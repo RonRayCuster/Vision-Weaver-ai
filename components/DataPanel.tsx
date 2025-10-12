@@ -1,20 +1,13 @@
-
 import React, { useState } from 'react';
-import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, StoryboardPanel, SoundscapeAnalysis } from '../types';
-import { findSegment, interpolate } from '../utils/interpolation';
-import TimelineGraph from './TimelineGraph';
+import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, StoryboardPanel, SoundscapeAnalysis } from '../types';
 import Scene3DView from './Scene3DView';
 import PointCloudViewer from './PointCloudViewer';
 import { ToggleSwitch } from './ToggleSwitch';
 import { getEmotionColor } from '../colors';
-import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, TimelineIcon, GenerativeIcon, StoryboardIcon, SoundscapeIcon } from './Icons';
+import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon, ReconstructionIcon, SceneLayoutIcon, ShotGeneratorIcon, GenerativeIcon, StoryboardIcon, SoundscapeIcon } from './Icons';
 
 
 interface DataPanelProps {
-    sceneData: SceneData;
-    currentTime: number;
-    showCameraPath: boolean;
-    showEmotionData: boolean;
     showDroneView: boolean;
     setShowDroneView: (show: boolean) => void;
     onAnalyzeScene: () => void;
@@ -53,7 +46,10 @@ interface DataPanelProps {
     isGeneratingSoundscape: boolean;
     soundscape: SoundscapeAnalysis | null;
     soundscapeError: string | null;
-    onSeek: (time: number) => void;
+    onGenerateAnimations: () => void;
+    isGeneratingAnimations: boolean;
+    animationError: string | null;
+    suggestedPrompts: Record<string, string>;
     onClose: () => void;
 }
 
@@ -169,8 +165,6 @@ const EmotionLegend: React.FC = () => {
 
 const DataPanel: React.FC<DataPanelProps> = (props) => {
     const {
-        sceneData, currentTime,
-        showCameraPath, showEmotionData,
         showDroneView, setShowDroneView,
         onAnalyzeScene, isAnalyzing, sceneAnalysis, analysisError, analysisProgress,
         onAnalyzeCinematics, isAnalyzingCinematics, cinematicAnalysis, cinematicAnalysisError,
@@ -180,7 +174,8 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
         onAnalyzeEmotions, isAnalyzingEmotions, emotionAnalysisProgress, emotionAnalysisError,
         onGenerateStoryboard, isGeneratingStoryboard, storyboardPanels, storyboardError,
         onGenerateSoundscape, isGeneratingSoundscape, soundscape, soundscapeError,
-        onSeek,
+        onGenerateAnimations, isGeneratingAnimations, animationError,
+        suggestedPrompts,
         onClose,
     } = props;
 
@@ -190,15 +185,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
     const [storyboardPrompt, setStoryboardPrompt] = useState<string>('A tense close-up of the Hero realizing the truth.');
     const [soundscapePrompt, setSoundscapePrompt] = useState<string>('An eerie, abandoned spaceship bridge. Distant, humming machinery and the faint sound of cosmic radiation.');
 
-    const totalEmotionalIntensity = sceneData.characters.reduce((acc, char) => {
-        // Handle potentially empty emotion array from new analysis
-        if (char.emotion.length === 0) return acc;
-        const { start, end } = findSegment<EmotionKeyframe>(char.emotion, currentTime);
-        const intensity = interpolate(start.intensity, end.intensity, start.time, end.time, currentTime);
-        return acc + intensity;
-    }, 0) / (sceneData.characters.length || 1);
-    
-    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo || isAnalyzingEmotions || isGeneratingStoryboard || isGeneratingSoundscape;
+    const anyAnalysisRunning = isAnalyzing || isAnalyzingCinematics || isReconstructing || isEditingImage || isGeneratingVideo || isAnalyzingEmotions || isGeneratingStoryboard || isGeneratingSoundscape || isGeneratingAnimations;
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -228,7 +215,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                             <div>
                                 <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <SceneLayoutIcon className="w-4 h-4 text-text-secondary" />
-                                    AI Scene Layout
+                                    3D Scene View
                                 </h4>
                                 <div className="space-y-3">
                                     <button
@@ -241,7 +228,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                         <span>{isAnalyzing ? (analysisProgress || 'Analyzing...') : 'Analyze Scene Layout'}</span>
                                     </button>
                                     <div className="p-2 border border-border rounded-md bg-primary/50">
-                                        <ToggleSwitch label="Show Drone View" isEnabled={showDroneView} onToggle={setShowDroneView} />
+                                        <ToggleSwitch label="Show AI Drone View" isEnabled={showDroneView} onToggle={setShowDroneView} />
                                     </div>
                                     <div className="h-64 flex items-center justify-center">
                                         {showDroneView ? (
@@ -249,10 +236,10 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                                 {isAnalyzing && <ShimmerBox text={analysisProgress || 'AI is analyzing...'}/>}
                                                 {analysisError && <p className="text-error text-center p-4">{analysisError}</p>}
                                                 {sceneAnalysis && <Scene3DView analysis={sceneAnalysis} />}
-                                                {!isAnalyzing && !analysisError && !sceneAnalysis && <p className="text-text-secondary text-sm">Analyze scene to generate 3D view</p>}
+                                                {!isAnalyzing && !analysisError && !sceneAnalysis && <p className="text-text-secondary text-sm">Analyze scene to generate AI drone view</p>}
                                             </>
                                         ) : (
-                                            <p className="text-text-secondary text-sm italic">Drone view is hidden.</p>
+                                            <p className="text-text-secondary text-sm text-center">3D Live Playback requires character data. Load a preset to view.</p>
                                         )}
                                     </div>
                                     {sceneAnalysis && !isAnalyzing && showDroneView && (
@@ -272,7 +259,7 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                 </h4>
                                 <div className="space-y-3">
                                      <p className="text-xs text-text-secondary leading-relaxed">
-                                        Analyze actor performance to generate a nuanced, second-by-second emotional curve.
+                                        Analyze actor performance to generate a nuanced, second-by-second emotional curve. (Requires a preset with character data).
                                     </p>
                                     <button
                                         onClick={onAnalyzeEmotions}
@@ -286,6 +273,30 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     {isAnalyzingEmotions && <ShimmerBox text={emotionAnalysisProgress || 'AI is analyzing performance...'}/>}
                                     {emotionAnalysisError && <p className="text-error text-center p-2">{emotionAnalysisError}</p>}
                                     <EmotionLegend />
+                                </div>
+                            </div>
+
+                             {/* AI Character Animation */}
+                            <div>
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
+                                    <GenerativeIcon className="w-4 h-4 text-text-secondary" />
+                                    AI Character Animation
+                                </h4>
+                                <div className="space-y-3">
+                                     <p className="text-xs text-text-secondary leading-relaxed">
+                                        Generate simple body language animations based on emotional arcs and blocking data. Viewable in the 3D Live Playback. (Requires a preset with character data).
+                                    </p>
+                                    <button
+                                        onClick={onGenerateAnimations}
+                                        disabled={anyAnalysisRunning}
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
+                                        title={'Generate character animations'}
+                                    >
+                                        {isGeneratingAnimations ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <GenerativeIcon className="w-4 h-4" />}
+                                        <span>{isGeneratingAnimations ? 'Generating Animations...' : 'Generate Character Animations'}</span>
+                                    </button>
+                                    {isGeneratingAnimations && <ShimmerBox text="AI is creating performances..." />}
+                                    {animationError && <p className="text-error text-center p-2">{animationError}</p>}
                                 </div>
                             </div>
                             
@@ -359,6 +370,9 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     AI Image Editor (Nano Banana)
                                 </h4>
                                 <div className="space-y-3 pt-3">
+                                     {suggestedPrompts.edit && (
+                                        <SuggestedPrompt suggestion={suggestedPrompts.edit} onUse={() => setEditPrompt(suggestedPrompts.edit)} />
+                                    )}
                                     <textarea
                                         value={editPrompt}
                                         onChange={(e) => setEditPrompt(e.target.value)}
@@ -397,6 +411,9 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     AI Shot Generator (Veo)
                                 </h4>
                                 <div className="space-y-3">
+                                    {suggestedPrompts.video && (
+                                        <SuggestedPrompt suggestion={suggestedPrompts.video} onUse={() => setVideoPrompt(suggestedPrompts.video)} />
+                                    )}
                                     <textarea
                                         value={videoPrompt}
                                         onChange={(e) => setVideoPrompt(e.target.value)}
@@ -432,6 +449,9 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     AI Storyboard Artist (Imagen)
                                 </h4>
                                 <div className="space-y-3">
+                                    {suggestedPrompts.storyboard && (
+                                        <SuggestedPrompt suggestion={suggestedPrompts.storyboard} onUse={() => setStoryboardPrompt(suggestedPrompts.storyboard)} />
+                                    )}
                                     <textarea
                                         value={storyboardPrompt}
                                         onChange={(e) => setStoryboardPrompt(e.target.value)}
@@ -477,6 +497,9 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     AI Sound Designer
                                 </h4>
                                 <div className="space-y-3">
+                                     {suggestedPrompts.soundscape && (
+                                        <SuggestedPrompt suggestion={suggestedPrompts.soundscape} onUse={() => setSoundscapePrompt(suggestedPrompts.soundscape)} />
+                                    )}
                                     <textarea
                                         value={soundscapePrompt}
                                         onChange={(e) => setSoundscapePrompt(e.target.value)}
@@ -522,51 +545,6 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                          </div>
                     </Accordion>
                 </div>
-
-                {/* Timeline Section */}
-                <div className="border-t border-border mt-4 pt-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                        <TimelineIcon className="w-5 h-5 text-accent" />
-                        <h3 className="text-md font-bold text-text-primary">Timelines</h3>
-                    </div>
-
-                    <div>
-                        <h4 className="text-sm text-text-secondary mb-1">Overall Scene Emotion</h4>
-                        <div className="w-full h-8 rounded-lg transition-colors duration-300 flex items-center justify-center text-xs font-bold text-primary relative overflow-hidden" style={{ backgroundColor: getEmotionColor(totalEmotionalIntensity) }}>
-                            <div className="absolute inset-0 bg-black/10"></div>
-                            <span className="z-10">INTENSITY: {totalEmotionalIntensity.toFixed(2)}</span>
-                        </div>
-                    </div>
-                    
-                    <div className="flex-grow">
-                        {showCameraPath && (
-                            <TimelineGraph
-                                type="complexity"
-                                label="Camera Complexity"
-                                data={sceneData.camera.movement.map(d => ({ time: d.time, intensity: d.complexity, label: d.label }))}
-                                color={sceneData.camera.pathColor}
-                                height={60}
-                                duration={sceneData.duration}
-                                currentTime={currentTime}
-                                onSeek={onSeek}
-                                noiseFactor={0.4}
-                            />
-                        )}
-                        {showEmotionData && sceneData.characters.map(char => (
-                            <TimelineGraph
-                                key={char.id}
-                                type="emotion"
-                                label={`${char.name} Emotion`}
-                                data={char.emotion}
-                                color={char.pathColor}
-                                height={40}
-                                duration={sceneData.duration}
-                                currentTime={currentTime}
-                                onSeek={onSeek}
-                            />
-                        ))}
-                    </div>
-                </div>
             </div>
         </div>
     );
@@ -578,5 +556,20 @@ const InfoBlock: React.FC<{ title: string; content: string }> = ({ title, conten
         <p className="text-text-primary bg-primary/40 border-l-4 border-accent pl-3 pr-2 py-2 rounded-r-md text-sm max-w-prose leading-relaxed">{content}</p>
     </div>
 );
+
+const SuggestedPrompt: React.FC<{ suggestion: string, onUse: () => void }> = ({ suggestion, onUse }) => (
+    <div className="bg-primary/70 border border-dashed border-secondary-accent/50 p-2 rounded-lg text-xs space-y-2">
+        <p className="text-text-secondary italic">
+            <span className="font-bold text-secondary-accent">AI Suggestion:</span> "{suggestion}"
+        </p>
+        <button
+            onClick={onUse}
+            className="bg-secondary-accent/20 text-secondary-accent px-2 py-1 rounded font-semibold hover:bg-secondary-accent/40 transition"
+        >
+            Use this prompt
+        </button>
+    </div>
+);
+
 
 export default DataPanel;

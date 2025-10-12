@@ -3,12 +3,13 @@ import { useState, useEffect, useCallback, RefObject } from 'react';
 /**
  * Custom hook to manage video playback state and controls.
  * @param videoRef A React ref to the HTMLVideoElement.
- * @param duration The total duration of the video.
  * @returns An object with playback state and control functions.
  */
-export function useVideoPlayback(videoRef: RefObject<HTMLVideoElement>, duration: number) {
+export function useVideoPlayback(videoRef: RefObject<HTMLVideoElement>) {
     const [currentTime, setCurrentTime] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [duration, setDuration] = useState(0);
+
 
     /**
      * Callback passed to the <video> element's onTimeUpdate event to sync state.
@@ -67,10 +68,12 @@ export function useVideoPlayback(videoRef: RefObject<HTMLVideoElement>, duration
     return {
         currentTime,
         isPlaying,
+        duration,
         togglePlay,
         handleScrub,
         handleTimeUpdate,
         setCurrentTime,
         setIsPlaying,
+        setDuration,
     };
 }

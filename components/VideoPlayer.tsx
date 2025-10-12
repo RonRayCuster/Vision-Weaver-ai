@@ -9,6 +9,7 @@ interface CurrentCameraPosition {
 interface VideoPlayerProps {
     videoUrl: string;
     onTimeUpdate: () => void;
+    onMetadataLoaded: () => void;
     showBlocking: boolean;
     characterPositions: CharacterPosition[];
     showCameraPath: boolean;
@@ -18,15 +19,18 @@ interface VideoPlayerProps {
 }
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-    ({ videoUrl, onTimeUpdate, showBlocking, characterPositions, showCameraPath, cameraPath, cameraPathColor, currentCameraPosition }, ref) => {
+    ({ videoUrl, onTimeUpdate, onMetadataLoaded, showBlocking, characterPositions, showCameraPath, cameraPath, cameraPathColor, currentCameraPosition }, ref) => {
         return (
             <div className="relative w-full aspect-video bg-primary rounded-xl overflow-hidden shadow-2xl shadow-accent/10">
                 <video
+                    key={videoUrl}
                     ref={ref}
                     className="w-full h-full object-cover"
                     onTimeUpdate={onTimeUpdate}
+                    onLoadedMetadata={onMetadataLoaded}
                     src={videoUrl}
                     crossOrigin="anonymous"
+                    preload="metadata"
                 />
                 <svg className="absolute top-0 left-0 w-full h-full pointer-events-none text-text-primary">
                     {showBlocking && characterPositions.map(char => (
@@ -46,7 +50,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                             </g>
                         </React.Fragment>
                     ))}
-                    {showCameraPath && (
+                    {showCameraPath && cameraPath.length > 0 && (
                         <React.Fragment>
                             <polyline
                                 points={cameraPath.map(p => `${p.x}%,${p.y}%`).join(' ')}
