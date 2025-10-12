@@ -13,8 +13,10 @@ import { useSceneViewOptions } from './hooks/useSceneViewOptions';
 import { analyzeSceneLayout, analyzeCinematics, reconstructScene, editFrame, generateVideo, analyzeEmotionalArc, FrameData, generateStoryboard, generateSoundscape } from './services/geminiService';
 import AIDirectorChat from './components/AIDirectorChat';
 import { ResizablePanel } from './components/ResizablePanel';
+import { ToggleSwitch } from './components/ToggleSwitch';
 
 const USER_PRESETS_STORAGE_KEY = 'visionweaver_user_presets';
+const PRESET_ICONS = ['🎬', '🎥', '🍿', '🎞️', '🌟', '💡', '🎭', '✍️'];
 
 export default function App() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -66,6 +68,7 @@ export default function App() {
     const [reconstructionProgress, setReconstructionProgress] = useState<string | null>(null);
 
     const [editedImage, setEditedImage] = useState<EditedImage | null>(null);
+    const [originalImageForEdit, setOriginalImageForEdit] = useState<string | null>(null);
     const [isEditingImage, setIsEditingImage] = useState(false);
     const [editImageError, setEditImageError] = useState<string | null>(null);
 
@@ -142,6 +145,7 @@ export default function App() {
             
             setEditedImage(null);
             setEditImageError(null);
+            setOriginalImageForEdit(null);
 
             setGeneratedVideo(null);
             setVideoGenerationError(null);
@@ -168,13 +172,14 @@ export default function App() {
             const newPreset: Preset = {
                 id: `user-${Date.now()}`, // Simple unique ID
                 name: presetName.trim(),
+                icon: PRESET_ICONS[userPresets.length % PRESET_ICONS.length], // Assign a cyclical icon
                 data: activeSceneData, // Use the currently active data, which may include AI analysis
             };
             setUserPresets(prev => [...prev, newPreset]);
             // Automatically switch to the new preset
             setCurrentPresetId(newPreset.id);
         }
-    }, [activeSceneData]);
+    }, [activeSceneData, userPresets.length]);
 
 
      // Effect to handle Escape key for exiting Cinema Mode/Panel and prevent body scroll
@@ -398,12 +403,14 @@ export default function App() {
         setIsEditingImage(true);
         setEditImageError(null);
         setEditedImage(null);
+        setOriginalImageForEdit(null);
 
         const video = videoRef.current;
         const originalTime = video.currentTime;
 
         try {
             const frameData = await captureFrame(originalTime);
+            setOriginalImageForEdit(frameData);
             const result = await editFrame(frameData, prompt);
             setEditedImage(result);
         } catch (error) {
@@ -514,12 +521,8 @@ export default function App() {
          <DataPanel
             sceneData={activeSceneData}
             currentTime={currentTime}
-            showBlocking={showBlocking}
-            setShowBlocking={setShowBlocking}
             showCameraPath={showCameraPath}
-            setShowCameraPath={setShowCameraPath}
             showEmotionData={showEmotionData}
-            setShowEmotionData={setShowEmotionData}
             showDroneView={showDroneView}
             setShowDroneView={setShowDroneView}
             onAnalyzeScene={handleAnalyzeScene}
@@ -539,6 +542,7 @@ export default function App() {
             onEditFrame={handleEditFrame}
             isEditingImage={isEditingImage}
             editedImage={editedImage}
+            originalImageForEdit={originalImageForEdit}
             editImageError={editImageError}
             onGenerateVideo={handleGenerateVideo}
             isGeneratingVideo={isGeneratingVideo}
@@ -572,7 +576,7 @@ export default function App() {
     );
 
     const videoPlayerSection = (
-        <div className={`flex flex-col gap-6 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
+        <div className={`flex flex-col gap-3 transition-all duration-500 min-h-0 ${isCinemaMode ? 'relative z-50' : ''}`}>
             <VideoPlayer
                 ref={videoRef}
                 videoUrl={activeSceneData.videoUrl}
@@ -593,6 +597,11 @@ export default function App() {
                 isCinemaMode={isCinemaMode}
                 onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
             />
+            <div className="bg-surface p-3 rounded-xl flex items-center justify-around space-x-4 border border-border shadow-lg">
+                <ToggleSwitch label="Character Paths" isEnabled={showBlocking} onToggle={setShowBlocking} />
+                <ToggleSwitch label="Camera Path" isEnabled={showCameraPath} onToggle={setShowCameraPath} />
+                <ToggleSwitch label="Emotion Curves" isEnabled={showEmotionData} onToggle={setShowEmotionData} />
+            </div>
         </div>
     );
 

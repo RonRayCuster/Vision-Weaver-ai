@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { SceneData, EmotionKeyframe, SceneAnalysis, CinematicAnalysis, SceneReconstruction, EditedImage, GeneratedVideo, StoryboardPanel, SoundscapeAnalysis } from '../types';
 import { findSegment, interpolate } from '../utils/interpolation';
@@ -12,12 +13,8 @@ import { AnalysisIcon, CinematicIcon, CloseIcon, EmotionArcIcon, ImageEditorIcon
 interface DataPanelProps {
     sceneData: SceneData;
     currentTime: number;
-    showBlocking: boolean;
-    setShowBlocking: (show: boolean) => void;
     showCameraPath: boolean;
-    setShowCameraPath: (show: boolean) => void;
     showEmotionData: boolean;
-    setShowEmotionData: (show: boolean) => void;
     showDroneView: boolean;
     setShowDroneView: (show: boolean) => void;
     onAnalyzeScene: () => void;
@@ -37,6 +34,7 @@ interface DataPanelProps {
     onEditFrame: (prompt: string) => void;
     isEditingImage: boolean;
     editedImage: EditedImage | null;
+    originalImageForEdit: string | null;
     editImageError: string | null;
     onGenerateVideo: (prompt: string) => void;
     isGeneratingVideo: boolean;
@@ -72,7 +70,7 @@ const Accordion: React.FC<AccordionProps> = ({ title, icon, children, isOpen, on
         <div className="border-b border-border last:border-b-0">
             <button
                 onClick={onToggle}
-                className="w-full flex justify-between items-center p-3 text-left hover:bg-primary/50 transition-colors focus:outline-none focus:ring-2 focus:ring-accent rounded-md"
+                className="w-full flex justify-between items-center p-3 text-left bg-gradient-to-br from-surface to-primary/30 hover:to-primary/60 transition-colors focus:outline-none focus:ring-2 focus:ring-accent rounded-md"
                 aria-expanded={isOpen}
             >
                 <div className="flex items-center gap-3">
@@ -114,15 +112,70 @@ const ShimmerBox: React.FC<{ text: string }> = ({ text }) => (
      </div>
 );
 
+const ImageCompareSlider: React.FC<{ before: string; after: string }> = ({ before, after }) => {
+    const [sliderPos, setSliderPos] = useState(50);
+    const beforeUrl = `data:image/jpeg;base64,${before}`;
+    const afterUrl = `data:image/jpeg;base64,${after}`;
+
+    return (
+        <div className="relative w-full aspect-video rounded-md overflow-hidden group">
+            <img src={beforeUrl} alt="Original Frame" className="absolute inset-0 w-full h-full object-contain" />
+            <div className="absolute inset-0 w-full h-full" style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}>
+                <img src={afterUrl} alt="AI Edited Frame" className="absolute inset-0 w-full h-full object-contain" />
+            </div>
+            <div 
+                className="absolute top-0 bottom-0 bg-text-primary w-0.5 pointer-events-none transition-opacity opacity-50 group-hover:opacity-100" 
+                style={{ left: `calc(${sliderPos}% - 1px)` }}
+            >
+                <div className="absolute top-1/2 -translate-y-1/2 -left-3 bg-text-primary rounded-full h-7 w-7 flex items-center justify-center shadow-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
+                </div>
+            </div>
+            <input
+                type="range"
+                min="0"
+                max="100"
+                value={sliderPos}
+                onChange={(e) => setSliderPos(Number(e.target.value))}
+                className="absolute inset-0 w-full h-full cursor-col-resize opacity-0"
+                aria-label="Compare edited image"
+            />
+        </div>
+    );
+};
+
+const EmotionLegend: React.FC = () => {
+    const gradientStops = Array.from({ length: 11 }, (_, i) => {
+        const intensity = i / 10;
+        return `${getEmotionColor(intensity)} ${intensity * 100}%`;
+    }).join(', ');
+    const gradient = `linear-gradient(to right, ${gradientStops})`;
+
+    return (
+        <div className="mt-4 space-y-1">
+            <h5 className="text-xs font-semibold text-text-secondary tracking-wide">EMOTION INTENSITY LEGEND</h5>
+            <div className="w-full h-3 rounded-full" style={{ background: gradient }} />
+            <div className="flex justify-between text-[10px] text-text-secondary/80">
+                <span>Calm (0.0)</span>
+                <span>Moderate</span>
+                <span>Intense (1.0)</span>
+            </div>
+        </div>
+    );
+};
+
+
 const DataPanel: React.FC<DataPanelProps> = (props) => {
     const {
-        sceneData, currentTime, showBlocking, setShowBlocking,
-        showCameraPath, setShowCameraPath, showEmotionData, setShowEmotionData,
+        sceneData, currentTime,
+        showCameraPath, showEmotionData,
         showDroneView, setShowDroneView,
         onAnalyzeScene, isAnalyzing, sceneAnalysis, analysisError, analysisProgress,
         onAnalyzeCinematics, isAnalyzingCinematics, cinematicAnalysis, cinematicAnalysisError,
         onReconstructScene, isReconstructing, sceneReconstruction, reconstructionError, reconstructionProgress,
-        onEditFrame, isEditingImage, editedImage, editImageError,
+        onEditFrame, isEditingImage, editedImage, originalImageForEdit, editImageError,
         onGenerateVideo, isGeneratingVideo, generatedVideo, videoGenerationError, videoGenerationProgress,
         onAnalyzeEmotions, isAnalyzingEmotions, emotionAnalysisProgress, emotionAnalysisError,
         onGenerateStoryboard, isGeneratingStoryboard, storyboardPanels, storyboardError,
@@ -170,21 +223,21 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                         isOpen={openAccordion === 'deconstruction'} 
                         onToggle={() => setOpenAccordion(openAccordion === 'deconstruction' ? null : 'deconstruction')}
                     >
-                        <div className="space-y-6">
+                        <div className="space-y-4">
                              {/* AI Scene Layout */}
                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <SceneLayoutIcon className="w-4 h-4 text-text-secondary" />
                                     AI Scene Layout
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <button
                                         onClick={onAnalyzeScene}
                                         disabled={anyAnalysisRunning}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Analyze the current scene layout'}
                                     >
-                                        {isAnalyzing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isAnalyzing ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <SceneLayoutIcon className="w-4 h-4" />}
                                         <span>{isAnalyzing ? (analysisProgress || 'Analyzing...') : 'Analyze Scene Layout'}</span>
                                     </button>
                                     <div className="p-2 border border-border rounded-md bg-primary/50">
@@ -213,42 +266,43 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
 
                             {/* AI Emotional Arc */}
                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <EmotionArcIcon className="w-4 h-4 text-text-secondary" />
                                     AI Emotional Arc
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                      <p className="text-xs text-text-secondary leading-relaxed">
                                         Analyze actor performance to generate a nuanced, second-by-second emotional curve.
                                     </p>
                                     <button
                                         onClick={onAnalyzeEmotions}
                                         disabled={anyAnalysisRunning}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Generate detailed emotional curves'}
                                     >
-                                        {isAnalyzingEmotions && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isAnalyzingEmotions ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <EmotionArcIcon className="w-4 h-4" />}
                                         <span>{isAnalyzingEmotions ? (emotionAnalysisProgress || 'Analyzing...') : 'Generate Emotional Arcs'}</span>
                                     </button>
                                     {isAnalyzingEmotions && <ShimmerBox text={emotionAnalysisProgress || 'AI is analyzing performance...'}/>}
                                     {emotionAnalysisError && <p className="text-error text-center p-2">{emotionAnalysisError}</p>}
+                                    <EmotionLegend />
                                 </div>
                             </div>
                             
                              {/* AI Cinematic Analysis */}
                              <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <CinematicIcon className="w-4 h-4 text-text-secondary" />
                                     AI Cinematic Analysis
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <button
                                         onClick={onAnalyzeCinematics}
                                         disabled={anyAnalysisRunning}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Analyze the current frame cinematics'}
                                     >
-                                        {isAnalyzingCinematics && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isAnalyzingCinematics ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <CinematicIcon className="w-4 h-4" />}
                                         <span>{isAnalyzingCinematics ? 'Analyzing...' : 'Analyze Cinematics'}</span>
                                     </button>
                                     {isAnalyzingCinematics && <ShimmerBox text="Analyzing cinematics..." />}
@@ -265,18 +319,18 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
 
                              {/* AI 3D Reconstruction */}
                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <ReconstructionIcon className="w-4 h-4 text-text-secondary" />
                                     AI 3D Reconstruction
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <button
                                         onClick={onReconstructScene}
                                         disabled={anyAnalysisRunning}
-                                        className="w-full bg-secondary-accent text-primary p-2 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-secondary-accent text-primary p-2 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Reconstruct the scene in 3D'}
                                     >
-                                        {isReconstructing && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isReconstructing ? <div className="w-4 h-4 border-2 border-t-transparent border-primary rounded-full animate-spin"></div> : <ReconstructionIcon className="w-4 h-4" />}
                                         <span>{isReconstructing ? (reconstructionProgress || 'Reconstructing...') : 'Reconstruct 3D Scene'}</span>
                                     </button>
                                     <div className="h-64 flex items-center justify-center">
@@ -299,12 +353,12 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                     >
                          <div className="space-y-6">
                               {/* AI Image Editor */}
-                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                             <div className="bg-primary/40 p-3 rounded-lg border border-border/50">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
                                     <ImageEditorIcon className="w-4 h-4 text-text-secondary" />
                                     AI Image Editor (Nano Banana)
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3 pt-3">
                                     <textarea
                                         value={editPrompt}
                                         onChange={(e) => setEditPrompt(e.target.value)}
@@ -316,19 +370,19 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     <button
                                         onClick={() => onEditFrame(editPrompt)}
                                         disabled={anyAnalysisRunning || !editPrompt.trim()}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Edit the current video frame'}
                                     >
-                                        {isEditingImage && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isEditingImage ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <ImageEditorIcon className="w-4 h-4" />}
                                         <span>{isEditingImage ? 'Editing Frame...' : 'Generate Edit'}</span>
                                     </button>
-                                    <div className="h-48 flex items-center justify-center">
+                                    <div className="min-h-48 flex items-center justify-center">
                                         {isEditingImage && <ShimmerBox text="AI is editing your frame..."/>}
                                         {editImageError && <p className="text-error text-center p-4">{editImageError}</p>}
-                                        {editedImage && (
+                                        {editedImage && originalImageForEdit && (
                                             <div className="w-full h-full flex flex-col items-center gap-2">
-                                                <img src={`data:image/jpeg;base64,${editedImage.imageData}`} alt="AI Edited Frame" className="w-full h-full object-contain rounded-md" />
-                                                <p className="text-xs text-text-secondary italic text-center w-full max-w-prose">{editedImage.commentary}</p>
+                                                <ImageCompareSlider before={originalImageForEdit} after={editedImage.imageData} />
+                                                <p className="text-xs text-text-secondary italic text-center w-full max-w-prose pt-2">{editedImage.commentary}</p>
                                             </div>
                                         )}
                                         {!isEditingImage && !editImageError && !editedImage && <p className="text-text-secondary text-sm">Edit the current frame using a text prompt.</p>}
@@ -338,11 +392,11 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
 
                              {/* AI Shot Generator */}
                               <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <ShotGeneratorIcon className="w-4 h-4 text-text-secondary" />
                                     AI Shot Generator (Veo)
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <textarea
                                         value={videoPrompt}
                                         onChange={(e) => setVideoPrompt(e.target.value)}
@@ -354,10 +408,10 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     <button
                                         onClick={() => onGenerateVideo(videoPrompt)}
                                         disabled={anyAnalysisRunning || !videoPrompt.trim()}
-                                        className="w-full bg-secondary-accent text-primary p-2 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-secondary-accent text-primary p-2 rounded-md font-semibold hover:bg-secondary-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Generate a new video shot'}
                                     >
-                                        {isGeneratingVideo && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isGeneratingVideo ? <div className="w-4 h-4 border-2 border-t-transparent border-primary rounded-full animate-spin"></div> : <ShotGeneratorIcon className="w-4 h-4" />}
                                         <span>{isGeneratingVideo ? 'Generating...' : 'Generate Shot'}</span>
                                     </button>
                                     <div className="h-48 flex items-center justify-center">
@@ -373,11 +427,11 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
     
                             {/* AI Storyboard Artist */}
                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <StoryboardIcon className="w-4 h-4 text-text-secondary" />
                                     AI Storyboard Artist (Imagen)
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <textarea
                                         value={storyboardPrompt}
                                         onChange={(e) => setStoryboardPrompt(e.target.value)}
@@ -389,10 +443,10 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     <button
                                         onClick={() => onGenerateStoryboard(storyboardPrompt)}
                                         disabled={anyAnalysisRunning || !storyboardPrompt.trim()}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Generate storyboard panels'}
                                     >
-                                        {isGeneratingStoryboard && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isGeneratingStoryboard ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <StoryboardIcon className="w-4 h-4" />}
                                         <span>{isGeneratingStoryboard ? 'Generating...' : 'Generate Storyboard'}</span>
                                     </button>
                                     <div className="h-48 flex items-center justify-center">
@@ -418,11 +472,11 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
 
                             {/* AI Sound Designer */}
                             <div>
-                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-2">
                                     <SoundscapeIcon className="w-4 h-4 text-text-secondary" />
                                     AI Sound Designer
                                 </h4>
-                                <div className="pl-6 space-y-3">
+                                <div className="space-y-3">
                                     <textarea
                                         value={soundscapePrompt}
                                         onChange={(e) => setSoundscapePrompt(e.target.value)}
@@ -434,10 +488,10 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                                     <button
                                         onClick={() => onGenerateSoundscape(soundscapePrompt)}
                                         disabled={anyAnalysisRunning || !soundscapePrompt.trim()}
-                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2"
+                                        className="w-full bg-accent text-text-primary p-2 rounded-md font-semibold hover:bg-accent/90 disabled:bg-border disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2 btn-glow"
                                         title={'Generate a soundscape description'}
                                     >
-                                        {isGeneratingSoundscape && <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>}
+                                        {isGeneratingSoundscape ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <SoundscapeIcon className="w-4 h-4" />}
                                         <span>{isGeneratingSoundscape ? 'Generating...' : 'Generate Soundscape'}</span>
                                     </button>
                                     <div className="flex flex-col items-center justify-center">
@@ -469,17 +523,11 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
                     </Accordion>
                 </div>
 
-                {/* Timeline & Overlays Section */}
+                {/* Timeline Section */}
                 <div className="border-t border-border mt-4 pt-4 space-y-3">
                     <div className="flex items-center gap-3">
                         <TimelineIcon className="w-5 h-5 text-accent" />
-                        <h3 className="text-md font-bold text-text-primary">Timeline & Overlays</h3>
-                    </div>
-
-                    <div className="space-y-3 p-3 bg-primary/50 rounded-lg">
-                        <ToggleSwitch label="Character Paths" isEnabled={showBlocking} onToggle={setShowBlocking} />
-                        <ToggleSwitch label="Camera Path" isEnabled={showCameraPath} onToggle={setShowCameraPath} />
-                        <ToggleSwitch label="Emotion Curves" isEnabled={showEmotionData} onToggle={setShowEmotionData} />
+                        <h3 className="text-md font-bold text-text-primary">Timelines</h3>
                     </div>
 
                     <div>
@@ -526,8 +574,8 @@ const DataPanel: React.FC<DataPanelProps> = (props) => {
 
 const InfoBlock: React.FC<{ title: string; content: string }> = ({ title, content }) => (
     <div>
-        <h4 className="font-bold text-accent">{title}</h4>
-        <p className="text-text-primary bg-primary/50 p-2 rounded-md text-sm max-w-prose leading-relaxed">{content}</p>
+        <h4 className="font-bold text-accent mb-1">{title}</h4>
+        <p className="text-text-primary bg-primary/40 border-l-4 border-accent pl-3 pr-2 py-2 rounded-r-md text-sm max-w-prose leading-relaxed">{content}</p>
     </div>
 );
 

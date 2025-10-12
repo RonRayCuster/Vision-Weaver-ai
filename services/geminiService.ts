@@ -1,6 +1,181 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import type { SceneAnalysis, CinematicAnalysis, SceneReconstruction, DynamicFeedback, EditedImage, GeneratedVideo, EmotionKeyframe, StoryboardPanel, SoundscapeAnalysis } from '../types';
 
+// =================================================================
+// Reusable & Specific Schema Snippets
+// =================================================================
+
+const VECTOR3_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        x: { type: Type.NUMBER, description: "X coordinate" },
+        y: { type: Type.NUMBER, description: "Y coordinate" },
+        z: { type: Type.NUMBER, description: "Z coordinate" },
+    },
+    required: ["x", "y", "z"]
+};
+
+const VECTOR3_SCENE_LAYOUT_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        x: { type: Type.NUMBER, description: "X coordinate from 0-100" },
+        y: { type: Type.NUMBER, description: "Y coordinate from 0-100 (ground plane)" },
+        z: { type: Type.NUMBER, description: "Z coordinate from 0-100 (height)" },
+    },
+    required: ["x", "y", "z"]
+};
+
+
+// =================================================================
+// Full Response Schemas
+// =================================================================
+
+const SCENE_ANALYSIS_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        actors: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING, description: "Name of the actor or character."},
+                    position: VECTOR3_SCENE_LAYOUT_SCHEMA,
+                    emotion: { type: Type.STRING, description: "The character's perceived emotion (e.g., 'happy', 'anxious')." },
+                    interaction: { type: Type.STRING, description: "Description of interaction with props or other characters. Null if none." }
+                },
+                required: ["name", "position", "emotion", "interaction"]
+            }
+        },
+        camera: {
+            type: Type.OBJECT,
+            properties: { position: VECTOR3_SCENE_LAYOUT_SCHEMA },
+            required: ["position"]
+        },
+        lights: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    type: { type: Type.STRING, description: "e.g., key, fill, back, practical"},
+                    position: VECTOR3_SCENE_LAYOUT_SCHEMA,
+                    intensity: { type: Type.NUMBER, description: "Light intensity from 0 to 1." }
+                },
+                required: ["type", "position", "intensity"]
+            }
+        },
+         props: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING, description: "Name of the prop."},
+                    position: VECTOR3_SCENE_LAYOUT_SCHEMA,
+                },
+                required: ["name", "position"]
+            }
+        },
+        environmentDescription: {
+            type: Type.STRING,
+            description: "Describe the physical environment. Include details like location (e.g., 'forest', 'kitchen'), time of day, and weather if applicable."
+        },
+        overallMood: {
+            type: Type.STRING,
+            description: "Describe the emotional atmosphere of the scene. Use specific, nuanced words (e.g., 'melancholy', 'suspenseful', 'joyful') rather than general categories."
+        }
+    },
+    required: ["actors", "camera", "lights", "props", "environmentDescription", "overallMood"]
+};
+
+const CINEMATIC_ANALYSIS_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        shotComposition: {
+            type: Type.STRING,
+            description: "Describe the shot composition. Specify the shot size (e.g., 'Extreme Close-up', 'Medium Shot', 'Full Shot'). Mention any notable framing techniques like rule of thirds, leading lines, or symmetry."
+        },
+        colorPalette: {
+            type: Type.STRING,
+            description: "Describe the color palette and grading. Specify the color temperature (e.g., 'cool blues', 'warm oranges'), dominant colors, and contrast level (e.g., 'high contrast', 'low contrast'). Describe the mood these colors evoke."
+        },
+        cameraWork: {
+            type: Type.STRING,
+            description: "Infer and describe the camera work. Specify camera movement (e.g., 'static', 'handheld shake', 'smooth dolly', 'dolly zoom'). Infer the likely lens focal length (e.g., 'wide-angle', 'telephoto')."
+        }
+    },
+    required: ["shotComposition", "colorPalette", "cameraWork"]
+};
+
+const SCENE_RECONSTRUCTION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        pointCloud: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    position: VECTOR3_SCHEMA,
+                    color: { type: Type.STRING, description: "Hex color string (#RRGGBB)" }
+                },
+                required: ["position", "color"]
+            }
+        },
+        cameraPoses: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    position: VECTOR3_SCHEMA,
+                    orientation: {
+                        type: Type.OBJECT,
+                        properties: {
+                            x: { type: Type.NUMBER },
+                            y: { type: Type.NUMBER },
+                            z: { type: Type.NUMBER },
+                            w: { type: Type.NUMBER },
+                        },
+                        description: "Quaternion representing camera orientation.",
+                        required: ["x", "y", "z", "w"]
+                    }
+                },
+                required: ["position", "orientation"]
+            }
+        }
+    },
+    required: ["pointCloud", "cameraPoses"]
+};
+
+const DYNAMIC_FEEDBACK_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        impact: {
+            type: Type.STRING,
+            description: "Briefly describe the cinematic impact of the change. (e.g., 'This creates a classic over-the-shoulder shot, increasing intimacy.')"
+        },
+        suggestion: {
+            type: Type.STRING,
+            description: "Offer a brief, creative suggestion related to the change. (e.g., 'Consider using a shallower depth of field to isolate the character further.')"
+        }
+    },
+    required: ["impact", "suggestion"]
+};
+
+const SOUNDSCAPE_ANALYSIS_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        description: {
+            type: Type.STRING,
+            description: "A detailed, evocative description of the ambient soundscape."
+        },
+        keywords: {
+            type: Type.ARRAY,
+            description: "A list of 5-7 keywords for searching in a sound effects library.",
+            items: { type: Type.STRING }
+        }
+    },
+    required: ["description", "keywords"]
+};
+
+
 export interface FrameData {
     timestamp: number;
     base64: string;
@@ -12,18 +187,8 @@ export interface FrameData {
 export async function analyzeSceneLayout(base64Frames: string[]): Promise<SceneAnalysis> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const vector3Schema = {
-        type: Type.OBJECT,
-        properties: {
-            x: { type: Type.NUMBER, description: "X coordinate from 0-100" },
-            y: { type: Type.NUMBER, description: "Y coordinate from 0-100 (ground plane)" },
-            z: { type: Type.NUMBER, description: "Z coordinate from 0-100 (height)" },
-        },
-         required: ["x", "y", "z"]
-    };
-    
     const parts = [
-        { text: `Analyze this sequence of frames from a movie. Describe the 3D layout from a top-down perspective (100x100 grid), character emotions, their interactions, the overall environment, and mood. Be very descriptive and nuanced in your analysis, especially for the environment (time of day, weather, location) and mood (specific emotional tones like 'melancholy' or 'suspenseful'). The frames are sequential. Provide a single, consolidated JSON response adhering to the schema.` },
+        { text: `Analyze this sequence of frames from a movie. Describe the 3D layout from a top-down perspective (100x100 grid), character emotions, their interactions, the overall environment, and mood. Be very descriptive and nuanced in your analysis, especially for the environment (time of day, weather, location) and mood (specific emotional tones like 'melancholy' or 'suspenseful'). The frames are sequential. Provide a single, consolidated JSON response adhering to the attached schema. The root object should contain keys like "actors", "camera", "lights", "props", "environmentDescription", and "overallMood".` },
         ...base64Frames.map(frame => ({ inlineData: { mimeType: 'image/jpeg', data: frame } }))
     ];
 
@@ -32,61 +197,7 @@ export async function analyzeSceneLayout(base64Frames: string[]): Promise<SceneA
         contents: { parts },
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    actors: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                name: { type: Type.STRING, description: "Name of the actor or character."},
-                                position: vector3Schema,
-                                emotion: { type: Type.STRING, description: "The character's perceived emotion (e.g., 'happy', 'anxious')." },
-                                interaction: { type: Type.STRING, description: "Description of interaction with props or other characters. Null if none." }
-                            },
-                            required: ["name", "position", "emotion", "interaction"]
-                        }
-                    },
-                    camera: {
-                        type: Type.OBJECT,
-                        properties: { position: vector3Schema },
-                        required: ["position"]
-                    },
-                    lights: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                type: { type: Type.STRING, description: "e.g., key, fill, back, practical"},
-                                position: vector3Schema,
-                                intensity: { type: Type.NUMBER, description: "Light intensity from 0 to 1." }
-                            },
-                            required: ["type", "position", "intensity"]
-                        }
-                    },
-                     props: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                name: { type: Type.STRING, description: "Name of the prop."},
-                                position: vector3Schema,
-                            },
-                            required: ["name", "position"]
-                        }
-                    },
-                    environmentDescription: {
-                        type: Type.STRING,
-                        description: "Describe the physical environment. Include details like location (e.g., 'forest', 'kitchen'), time of day, and weather if applicable."
-                    },
-                    overallMood: {
-                        type: Type.STRING,
-                        description: "Describe the emotional atmosphere of the scene. Use specific, nuanced words (e.g., 'melancholy', 'suspenseful', 'joyful') rather than general categories."
-                    }
-                },
-                required: ["actors", "camera", "lights", "props", "environmentDescription", "overallMood"]
-            }
+            responseSchema: SCENE_ANALYSIS_SCHEMA,
         }
     });
 
@@ -102,7 +213,7 @@ export async function analyzeCinematics(base64Frame: string): Promise<CinematicA
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const parts = [
-        { text: `Analyze the cinematic properties of this film frame. Describe the shot composition, color palette, and inferred camera work. Provide a JSON response adhering to the schema.` },
+        { text: `Analyze the cinematic properties of this film frame. Describe the shot composition, color palette, and inferred camera work. Provide a JSON response adhering to the attached schema. The root object should contain keys like "shotComposition", "colorPalette", and "cameraWork".` },
         { inlineData: { mimeType: 'image/jpeg', data: base64Frame } }
     ];
 
@@ -111,24 +222,7 @@ export async function analyzeCinematics(base64Frame: string): Promise<CinematicA
         contents: { parts },
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    shotComposition: {
-                        type: Type.STRING,
-                        description: "Describe the shot composition. Specify the shot size (e.g., 'Extreme Close-up', 'Medium Shot', 'Full Shot'). Mention any notable framing techniques like rule of thirds, leading lines, or symmetry."
-                    },
-                    colorPalette: {
-                        type: Type.STRING,
-                        description: "Describe the color palette and grading. Specify the color temperature (e.g., 'cool blues', 'warm oranges'), dominant colors, and contrast level (e.g., 'high contrast', 'low contrast'). Describe the mood these colors evoke."
-                    },
-                    cameraWork: {
-                        type: Type.STRING,
-                        description: "Infer and describe the camera work. Specify camera movement (e.g., 'static', 'handheld shake', 'smooth dolly', 'dolly zoom'). Infer the likely lens focal length (e.g., 'wide-angle', 'telephoto')."
-                    }
-                },
-                required: ["shotComposition", "colorPalette", "cameraWork"]
-            }
+            responseSchema: CINEMATIC_ANALYSIS_SCHEMA,
         }
     });
 
@@ -143,18 +237,8 @@ export async function analyzeCinematics(base64Frame: string): Promise<CinematicA
 export async function reconstructScene(base64Frames: string[]): Promise<SceneReconstruction> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const vector3Schema = {
-        type: Type.OBJECT,
-        properties: {
-            x: { type: Type.NUMBER },
-            y: { type: Type.NUMBER },
-            z: { type: Type.NUMBER },
-        },
-        required: ["x", "y", "z"]
-    };
-
     const parts = [
-        { text: `Analyze this sequence of frames. Use the COLMAP tool to perform a 3D reconstruction of the scene. Generate a dense point cloud and the corresponding camera poses for each frame. The origin (0,0,0) should be the center of the scene. Provide a JSON response adhering to the schema.` },
+        { text: `Analyze this sequence of frames. Use the COLMAP tool to perform a 3D reconstruction of the scene. Generate a dense point cloud and the corresponding camera poses for each frame. The origin (0,0,0) should be the center of the scene. Provide a JSON response adhering to the attached schema. The root object should contain keys like "pointCloud" and "cameraPoses".` },
         ...base64Frames.map(frame => ({ inlineData: { mimeType: 'image/jpeg', data: frame } }))
     ];
     
@@ -163,44 +247,7 @@ export async function reconstructScene(base64Frames: string[]): Promise<SceneRec
         contents: { parts },
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    pointCloud: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                position: vector3Schema,
-                                color: { type: Type.STRING, description: "Hex color string (#RRGGBB)" }
-                            },
-                            required: ["position", "color"]
-                        }
-                    },
-                    cameraPoses: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                position: vector3Schema,
-                                orientation: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        x: { type: Type.NUMBER },
-                                        y: { type: Type.NUMBER },
-                                        z: { type: Type.NUMBER },
-                                        w: { type: Type.NUMBER },
-                                    },
-                                    description: "Quaternion representing camera orientation.",
-                                    required: ["x", "y", "z", "w"]
-                                }
-                            },
-                            required: ["position", "orientation"]
-                        }
-                    }
-                },
-                required: ["pointCloud", "cameraPoses"]
-            }
+            responseSchema: SCENE_RECONSTRUCTION_SCHEMA,
         }
     });
     const resultJson = JSON.parse(response.text);
@@ -229,7 +276,7 @@ export async function getDynamicFeedbackForChange(analysis: SceneAnalysis, chang
         The user just moved the "${changedObjectName}".
         
         Based on its new position relative to other elements, provide a concise cinematic analysis of this specific change.
-        Be brief and insightful. Adhere to the JSON schema.
+        Be brief and insightful. Adhere to the attached JSON schema, which expects "impact" and "suggestion" keys.
     `;
 
     const response = await ai.models.generateContent({
@@ -237,20 +284,7 @@ export async function getDynamicFeedbackForChange(analysis: SceneAnalysis, chang
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    impact: {
-                        type: Type.STRING,
-                        description: "Briefly describe the cinematic impact of the change. (e.g., 'This creates a classic over-the-shoulder shot, increasing intimacy.')"
-                    },
-                    suggestion: {
-                        type: Type.STRING,
-                        description: "Offer a brief, creative suggestion related to the change. (e.g., 'Consider using a shallower depth of field to isolate the character further.')"
-                    }
-                },
-                required: ["impact", "suggestion"]
-            }
+            responseSchema: DYNAMIC_FEEDBACK_SCHEMA,
         }
     });
 
@@ -383,7 +417,7 @@ export async function generateSoundscape(prompt: string): Promise<SoundscapeAnal
         Scene: "${prompt}"
         
         Provide a rich description of the soundscape and a list of keywords for a sound effects library.
-        Adhere to the JSON schema.
+        Adhere to the attached JSON schema, which expects "description" and "keywords" keys.
     `;
     
     const response = await ai.models.generateContent({
@@ -391,21 +425,7 @@ export async function generateSoundscape(prompt: string): Promise<SoundscapeAnal
         contents: fullPrompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    description: {
-                        type: Type.STRING,
-                        description: "A detailed, evocative description of the ambient soundscape."
-                    },
-                    keywords: {
-                        type: Type.ARRAY,
-                        description: "A list of 5-7 keywords for searching in a sound effects library.",
-                        items: { type: Type.STRING }
-                    }
-                },
-                required: ["description", "keywords"]
-            }
+            responseSchema: SOUNDSCAPE_ANALYSIS_SCHEMA,
         }
     });
 

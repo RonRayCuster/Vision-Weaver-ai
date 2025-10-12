@@ -43,14 +43,16 @@ export interface CharacterPosition extends Character {
     y: number;
 }
 
+export interface CameraData {
+    movement: CameraKeyframe[];
+    pathColor: string;
+}
+
 export interface SceneData {
     videoUrl: string;
     duration: number;
     characters: Character[];
-    camera: {
-        movement: CameraKeyframe[];
-        pathColor: string;
-    };
+    camera: CameraData;
 }
 
 // Types for Gemini Service Responses

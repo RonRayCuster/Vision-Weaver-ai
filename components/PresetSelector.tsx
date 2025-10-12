@@ -38,7 +38,10 @@ const PresetSelector: React.FC<PresetSelectorProps> = ({ presets, currentPresetI
                 aria-haspopup="true"
                 aria-expanded={isOpen}
             >
-                <span className="text-sm font-medium">{currentPreset?.name || 'Select Preset'}</span>
+                <div className="flex items-center gap-2">
+                    {currentPreset?.icon && <span className="text-base">{currentPreset.icon}</span>}
+                    <span className="text-sm font-medium">{currentPreset?.name || 'Select Preset'}</span>
+                </div>
                 <ChevronDownIcon className={`w-4 h-4 text-text-secondary transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </button>
             {isOpen && (
@@ -50,7 +53,10 @@ const PresetSelector: React.FC<PresetSelectorProps> = ({ presets, currentPresetI
                                     onClick={() => handleSelect(preset.id)}
                                     className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-primary flex items-center justify-between"
                                 >
-                                    <span>{preset.name}</span>
+                                    <div className="flex items-center gap-2">
+                                        {preset.icon && <span className="text-base w-5 text-center">{preset.icon}</span>}
+                                        <span>{preset.name}</span>
+                                    </div>
                                     {preset.id === currentPresetId && <CheckIcon className="w-4 h-4 text-accent" />}
                                 </button>
                             </li>

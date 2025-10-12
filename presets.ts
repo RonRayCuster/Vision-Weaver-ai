@@ -4,6 +4,7 @@ import { colors } from './colors';
 export interface Preset {
     id: string;
     name: string;
+    icon?: string;
     data: SceneData;
 }
 
@@ -11,6 +12,7 @@ export const presets: Preset[] = [
     {
         id: 'big-buck-bunny',
         name: 'Big Buck Bunny (Default)',
+        icon: '🐇',
         data: {
             videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
             duration: 60,
@@ -75,6 +77,7 @@ export const presets: Preset[] = [
     {
         id: 'chase-scene',
         name: 'Chase Scene',
+        icon: '🏃',
         data: {
             videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
             duration: 60,
@@ -131,6 +134,7 @@ export const presets: Preset[] = [
     {
         id: 'tense-standoff',
         name: 'Tense Standoff',
+        icon: '👀',
         data: {
             videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
             duration: 60,

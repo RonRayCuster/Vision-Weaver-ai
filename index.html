@@ -59,6 +59,14 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #9AA0A6; /* text-secondary */
   }
+  /* UI Polish: Global Button Glow Effect */
+  .btn-glow {
+    transition: all 0.2s ease-in-out;
+  }
+  .btn-glow:hover:not(:disabled) {
+    box-shadow: 0 0 8px 1px theme('colors.accent/50%'), 0 0 20px 2px theme('colors.accent/20%');
+    transform: translateY(-1px);
+  }
 </style>
 </head>
   <body class="bg-primary">

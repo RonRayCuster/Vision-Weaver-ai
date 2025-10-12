@@ -1,4 +1,3 @@
-
 # Data Structures & Types API
 
 This document provides a reference for the core data structures used throughout the Interactive Scene Visualizer application, as defined in `types.ts`.
@@ -61,6 +60,7 @@ Describes the camera's movement and properties over time.
 ```typescript
 interface CameraData {
     movement: CameraKeyframe[];
+    pathColor: string;
 }
 
 interface CameraKeyframe {
